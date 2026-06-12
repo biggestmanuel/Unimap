@@ -227,11 +227,12 @@ function selectLocation(feature) {
   document.getElementById('locationName').textContent = name;
   document.getElementById('locationDesc').textContent = desc || '';
 
-  // Calculate ETA if user location known
+  // Calculate ETA using real OSRM walking route
+  document.getElementById('locationEta').textContent = '🚶 Calculating...';
   if (userLocation) {
-    const distance = getDistanceMeters(userLocation, [lat, lng]);
-    const minutes = Math.ceil(distance / 80); // avg walking ~80m/min
-    document.getElementById('locationEta').textContent = `🚶 ~${minutes} min walk · ${Math.round(distance)}m away`;
+    getRealETA(userLocation, [lat, lng]).then(eta => {
+      document.getElementById('locationEta').textContent = eta;
+    });
   } else {
     document.getElementById('locationEta').textContent = '';
   }
@@ -469,8 +470,29 @@ function handleOffline() {
 }
 
 // =====================
-// DISTANCE HELPER
+// REAL ETA FROM OSRM
 // =====================
+async function getRealETA([lat1, lon1], [lat2, lon2]) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.code === 'Ok' && data.routes.length > 0) {
+      const seconds = data.routes[0].duration;
+      const distance = Math.round(data.routes[0].distance);
+      const minutes = Math.ceil(seconds / 60);
+      return `🚶 ~${minutes} min walk · ${distance}m away`;
+    }
+  } catch (err) {
+    console.warn('OSRM ETA failed:', err);
+  }
+  // Fallback to straight line
+  const distance = getDistanceMeters([lat1, lon1], [lat2, lon2]);
+  const minutes = Math.ceil(distance / 80);
+  return `🚶 ~${minutes} min walk · ${Math.round(distance)}m away`;
+}
+
+
 function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
