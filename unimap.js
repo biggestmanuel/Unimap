@@ -106,7 +106,7 @@ async function loadLocations() {
 
       const marker = L.circleMarker([lat, lng], {
         radius: 7,
-        fillColor: '#22a060',
+        fillColor: '#2563eb',
         color: '#ffffff',
         weight: 2,
         opacity: 1,
@@ -276,7 +276,7 @@ function startNavigation(destination) {
       profile: 'foot'
     }),
     lineOptions: {
-      styles: [{ color: '#22a060', weight: 5, opacity: 0.85 }]
+      styles: [{ color: '#2563eb', weight: 5, opacity: 0.85 }]
     },
     createMarker: () => null // hide default markers
   }).addTo(map);
