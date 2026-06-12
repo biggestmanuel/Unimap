@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UniMap — Navigate RSU</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet Routing Machine CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="unimap.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <span class="logo-icon">🧭</span>
+      <span class="logo-text">Uni<span class="logo-accent">Map</span></span>
+    </div>
+    <div class="header-sub">Rivers State University</div>
+  </header>
+
+  <!-- Search Panel -->
+  <div class="search-panel">
+    <div class="search-wrapper">
+      <span class="search-icon">🔍</span>
+      <input
+        type="text"
+        id="searchInput"
+        class="search-input"
+        placeholder="Where are you headed?"
+        autocomplete="off"
+      />
+      <button class="clear-btn" id="clearBtn" title="Clear">✕</button>
+    </div>
+    <ul class="suggestions" id="suggestions"></ul>
+
+    <!-- Popular Places -->
+    <div class="popular-section" id="popularSection">
+      <p class="popular-label">Popular Places</p>
+      <div class="popular-chips" id="popularChips"></div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Bottom Card (location info + navigation) -->
+  <div class="bottom-card" id="bottomCard">
+    <div class="bottom-card-handle"></div>
+    <div class="location-info">
+      <h3 class="location-name" id="locationName"></h3>
+      <p class="location-desc" id="locationDesc"></p>
+      <p class="location-eta" id="locationEta"></p>
+    </div>
+    <div class="card-actions">
+      <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
+      <button class="btn-cancel" id="cancelBtn">Cancel</button>
+    </div>
+  </div>
+
+  <!-- I'm Lost Button -->
+  <button class="lost-btn" id="lostBtn" title="I'm Lost">
+    <span>😵</span>
+    <span class="lost-text">I'm Lost</span>
+  </button>
+
+  <!-- Arrived Toast -->
+  <div class="toast" id="arrivedToast">
+    <span class="toast-icon">🎉</span>
+    <span class="toast-msg">You've arrived at your destination!</span>
+  </div>
+
+  <!-- Offline Banner -->
+  <div class="offline-banner" id="offlineBanner">
+    📵 You're offline — using cached map
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet Routing Machine -->
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+  <script src="unimap.js"></script>
+</body>
+</html>
