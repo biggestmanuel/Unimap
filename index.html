@@ -18,16 +18,17 @@
 <body>
 
   <!-- Header -->
-  <header class="header">
+  <header class="header" id="header">
     <div class="logo">
-  <img src="logo.png" alt="UniMap" class="logo-img" />
-</div>
+      <img src="logo.png" alt="UniMap" class="logo-img" />
+    </div>
     <div class="header-sub">Rivers State University</div>
   </header>
 
-  <!-- Search Panel -->
-  <div class="search-panel">
+  <!-- Search Panel (always visible bar) -->
+  <div class="search-panel" id="searchPanel">
     <div class="search-wrapper">
+      <button class="back-btn" id="backBtn">&#8592;</button>
       <span class="search-icon">🔍</span>
       <input
         type="text"
@@ -35,9 +36,28 @@
         class="search-input"
         placeholder="Where are you headed?"
         autocomplete="off"
+        readonly
       />
       <button class="clear-btn" id="clearBtn" title="Clear">✕</button>
     </div>
+  </div>
+
+  <!-- Search Overlay (slides up when search is focused) -->
+  <div class="search-overlay" id="searchOverlay">
+    <div class="search-wrapper" style="margin: 0 16px;">
+      <button class="back-btn visible" id="overlayBackBtn">&#8592;</button>
+      <span class="search-icon">🔍</span>
+      <input
+        type="text"
+        id="overlaySearchInput"
+        class="search-input"
+        placeholder="Where are you headed?"
+        autocomplete="off"
+      />
+      <button class="clear-btn" id="overlayClearBtn" title="Clear">✕</button>
+    </div>
+
+    <!-- Suggestions -->
     <ul class="suggestions" id="suggestions"></ul>
 
     <!-- Popular Places -->
@@ -50,13 +70,12 @@
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Bottom Card (location info + navigation) -->
+  <!-- Bottom Card -->
   <div class="bottom-card" id="bottomCard">
     <div class="bottom-card-handle"></div>
     <div class="location-info">
       <h3 class="location-name" id="locationName"></h3>
       <p class="location-desc" id="locationDesc"></p>
-      <p class="location-eta" id="locationEta"></p>
     </div>
     <div class="card-actions">
       <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
@@ -70,10 +89,10 @@
     <span class="lost-text">I'm Lost</span>
   </button>
 
-  <!-- Arrived Toast -->
+  <!-- Toast -->
   <div class="toast" id="arrivedToast">
     <span class="toast-icon">🎉</span>
-    <span class="toast-msg">You've arrived at your destination!</span>
+    <span class="toast-msg">You've arrived!</span>
   </div>
 
   <!-- Offline Banner -->
@@ -83,9 +102,7 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Leaflet Routing Machine -->
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
-
   <script src="unimap.js"></script>
 </body>
 </html>

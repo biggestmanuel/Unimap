@@ -2,14 +2,9 @@
    UNIMAP — MAIN SCRIPT
    ===================== */
 
-// RSU Campus center coordinates
 const RSU_CENTER = [4.7975, 6.9805];
-const RSU_BOUNDS = L.latLngBounds(
-  [4.788, 6.972],
-  [4.808, 6.990]
-);
+const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
 
-// Popular places (matching names in GeoJSON)
 const POPULAR_PLACES = [
   "UST Shuttle Park",
   "Convocation Arena",
@@ -28,7 +23,6 @@ const POPULAR_PLACES = [
   "College of Medical Sciences, RSU"
 ];
 
-// Friendly display names for popular chips
 const POPULAR_LABELS = {
   "UST Shuttle Park": "Shuttle Park",
   "Convocation Arena": "Convo Arena",
@@ -50,14 +44,12 @@ const POPULAR_LABELS = {
 // =====================
 // STATE
 // =====================
-let map;
-let userMarker;
-let userLocation = null;
+let map, userMarker, userLocation = null;
 let routingControl = null;
 let allLocations = [];
 let selectedLocation = null;
-let watchId = null;
 let isNavigating = false;
+let searchOpen = false;
 
 // =====================
 // INIT MAP
@@ -71,20 +63,14 @@ function initMap() {
     maxBoundsViscosity: 0.8
   });
 
-  // OpenStreetMap tiles
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
     maxZoom: 19,
     minZoom: 14
   }).addTo(map);
 
-  // Load GeoJSON
   loadLocations();
-
-  // Start tracking user
   startTracking();
-
-  // Offline detection
   handleOffline();
 }
 
@@ -95,10 +81,8 @@ async function loadLocations() {
   try {
     const res = await fetch('unimap.geojson');
     const data = await res.json();
-
     allLocations = data.features.filter(f => f.geometry.type === 'Point');
 
-    // Add markers to map (hidden by default)
     allLocations.forEach(feature => {
       const [lng, lat] = feature.geometry.coordinates;
       const name = feature.properties.Name;
@@ -114,17 +98,11 @@ async function loadLocations() {
       }).addTo(map);
 
       marker.bindPopup(`<strong>${name}</strong>${desc ? `<br><span style="color:#6b7fa3;font-size:12px">${desc}</span>` : ''}`);
-
-      marker.on('click', () => {
-        selectLocation(feature);
-      });
-
+      marker.on('click', () => selectLocation(feature));
       feature._marker = marker;
     });
 
-    // Render popular chips
     renderPopularChips();
-
   } catch (err) {
     console.error('Failed to load locations:', err);
   }
@@ -137,29 +115,123 @@ function renderPopularChips() {
   const container = document.getElementById('popularChips');
   container.innerHTML = '';
 
-  POPULAR_PLACES.forEach(name => {
+  POPULAR_PLACES.forEach((name, i) => {
     const location = allLocations.find(f => f.properties.Name === name);
     if (!location) return;
 
     const chip = document.createElement('button');
     chip.className = 'chip';
     chip.textContent = POPULAR_LABELS[name] || name;
+    chip.style.animationDelay = `${i * 30}ms`;
     chip.addEventListener('click', () => {
+      closeSearch();
       selectLocation(location);
-      closeSuggestions();
     });
     container.appendChild(chip);
   });
 }
 
 // =====================
+// SEARCH OVERLAY
+// =====================
+const searchInput = document.getElementById('searchInput');
+const overlayInput = document.getElementById('overlaySearchInput');
+const overlay = document.getElementById('searchOverlay');
+const suggestions = document.getElementById('suggestions');
+const header = document.getElementById('header');
+const searchPanel = document.getElementById('searchPanel');
+const backBtn = document.getElementById('backBtn');
+const overlayBackBtn = document.getElementById('overlayBackBtn');
+const clearBtn = document.getElementById('clearBtn');
+const overlayClearBtn = document.getElementById('overlayClearBtn');
+
+// Open search when tapping the readonly input
+searchInput.addEventListener('click', openSearch);
+
+function openSearch() {
+  searchOpen = true;
+  overlay.classList.add('open');
+  header.classList.add('hide');
+  searchPanel.classList.add('expanded');
+  setTimeout(() => overlayInput.focus(), 50);
+}
+
+function closeSearch() {
+  searchOpen = false;
+  overlay.classList.remove('open');
+  header.classList.remove('hide');
+  searchPanel.classList.remove('expanded');
+  overlayInput.value = '';
+  suggestions.innerHTML = '';
+  suggestions.style.display = 'none';
+  overlayClearBtn.classList.remove('visible');
+  document.getElementById('popularSection').style.display = 'block';
+}
+
+overlayBackBtn.addEventListener('click', closeSearch);
+backBtn.addEventListener('click', closeSearch);
+
+// Live search in overlay
+overlayInput.addEventListener('input', () => {
+  const query = overlayInput.value.trim().toLowerCase();
+
+  if (query.length === 0) {
+    suggestions.innerHTML = '';
+    suggestions.style.display = 'none';
+    overlayClearBtn.classList.remove('visible');
+    document.getElementById('popularSection').style.display = 'block';
+    return;
+  }
+
+  overlayClearBtn.classList.add('visible');
+  document.getElementById('popularSection').style.display = 'none';
+
+  const matches = allLocations.filter(f =>
+    f.properties.Name.toLowerCase().includes(query)
+  );
+
+  suggestions.innerHTML = '';
+
+  if (matches.length === 0) {
+    suggestions.style.display = 'none';
+    return;
+  }
+
+  suggestions.style.display = 'block';
+  matches.slice(0, 8).forEach((feature, i) => {
+    const li = document.createElement('li');
+    li.style.animationDelay = `${i * 30}ms`;
+    li.innerHTML = `<span class="sug-icon">📍</span>${feature.properties.Name}`;
+    li.addEventListener('click', () => {
+      closeSearch();
+      selectLocation(feature);
+    });
+    suggestions.appendChild(li);
+  });
+});
+
+overlayClearBtn.addEventListener('click', () => {
+  overlayInput.value = '';
+  suggestions.innerHTML = '';
+  suggestions.style.display = 'none';
+  overlayClearBtn.classList.remove('visible');
+  document.getElementById('popularSection').style.display = 'block';
+  overlayInput.focus();
+});
+
+clearBtn.addEventListener('click', () => {
+  closeSearch();
+  closeBottomCard();
+  clearRoute();
+  hideAllMarkers();
+});
+
+// =====================
 // MARKER VISIBILITY
 // =====================
 function hideAllMarkers() {
-  allLocations.forEach(feature => {
-    if (feature._marker) {
-      feature._marker.setStyle({ opacity: 0, fillOpacity: 0 });
-    }
+  allLocations.forEach(f => {
+    if (f._marker) f._marker.setStyle({ opacity: 0, fillOpacity: 0 });
   });
 }
 
@@ -168,64 +240,6 @@ function showMarker(feature) {
   if (feature._marker) {
     feature._marker.setStyle({ opacity: 1, fillOpacity: 0.9 });
   }
-}
-
-
-const searchInput = document.getElementById('searchInput');
-const suggestionsList = document.getElementById('suggestions');
-const clearBtn = document.getElementById('clearBtn');
-const popularSection = document.getElementById('popularSection');
-
-searchInput.addEventListener('input', () => {
-  const query = searchInput.value.trim().toLowerCase();
-
-  if (query.length === 0) {
-    closeSuggestions();
-    clearBtn.classList.remove('visible');
-    popularSection.style.display = 'block';
-    return;
-  }
-
-  clearBtn.classList.add('visible');
-  popularSection.style.display = 'none';
-
-  const matches = allLocations.filter(f =>
-    f.properties.Name.toLowerCase().includes(query)
-  );
-
-  if (matches.length === 0) {
-    closeSuggestions();
-    return;
-  }
-
-  suggestionsList.innerHTML = '';
-  matches.slice(0, 8).forEach(feature => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="sug-icon">📍</span> ${feature.properties.Name}`;
-    li.addEventListener('click', () => {
-      searchInput.value = feature.properties.Name;
-      closeSuggestions();
-      selectLocation(feature);
-    });
-    suggestionsList.appendChild(li);
-  });
-
-  suggestionsList.classList.add('open');
-});
-
-clearBtn.addEventListener('click', () => {
-  searchInput.value = '';
-  clearBtn.classList.remove('visible');
-  closeSuggestions();
-  popularSection.style.display = 'block';
-  closeBottomCard();
-  clearRoute();
-  hideAllMarkers();
-});
-
-function closeSuggestions() {
-  suggestionsList.classList.remove('open');
-  suggestionsList.innerHTML = '';
 }
 
 // =====================
@@ -237,25 +251,11 @@ function selectLocation(feature) {
   const name = feature.properties.Name;
   const desc = feature.properties.description;
 
-  // Show only this marker
   showMarker(feature);
+  map.flyTo([lat, lng], 18, { duration: 1.0, easeLinearity: 0.3 });
 
-  // Fly to location
-  map.flyTo([lat, lng], 18, { duration: 1.2 });
-
-  // Update bottom card
   document.getElementById('locationName').textContent = name;
   document.getElementById('locationDesc').textContent = desc || '';
-
-  // Calculate ETA using real OSRM walking route
-  document.getElementById('locationEta').textContent = '🚶 Calculating...';
-  if (userLocation) {
-    getRealETA(userLocation, [lat, lng]).then(eta => {
-      document.getElementById('locationEta').textContent = eta;
-    });
-  } else {
-    document.getElementById('locationEta').textContent = '';
-  }
 
   openBottomCard();
 }
@@ -265,21 +265,18 @@ function selectLocation(feature) {
 // =====================
 document.getElementById('navigateBtn').addEventListener('click', () => {
   if (!selectedLocation) return;
-
   if (!userLocation) {
-    showToast('📍 Waiting for your location...');
+    showToast('📍 Still finding your location...');
     return;
   }
-
   const [lng, lat] = selectedLocation.geometry.coordinates;
   startNavigation([lat, lng]);
+  closeBottomCard();
 });
 
 function startNavigation(destination) {
   clearRoute();
   isNavigating = true;
-
-  // Hide lost button during nav
   document.getElementById('lostBtn').classList.add('hidden');
 
   routingControl = L.Routing.control({
@@ -296,34 +293,19 @@ function startNavigation(destination) {
       profile: 'foot'
     }),
     lineOptions: {
-      styles: [{ color: '#2563eb', weight: 5, opacity: 0.85 }]
+      styles: [{ color: '#2563eb', weight: 5, opacity: 0.9 }]
     },
-    createMarker: () => null // hide default markers
+    createMarker: () => null
   }).addTo(map);
 
-  routingControl.on('routesfound', (e) => {
-    const route = e.routes[0];
-    const seconds = route.summary.totalTime;
-    const minutes = Math.ceil(seconds / 60);
-    const distance = Math.round(route.summary.totalDistance);
-    document.getElementById('locationEta').textContent = `🚶 ~${minutes} min walk · ${distance}m away`;
-
-    // Start arrival check
-    checkArrival(destination);
-  });
-
-  closeBottomCard();
-
-  // Show cancel button as floating
-  document.getElementById('cancelBtn').addEventListener('click', stopNavigation);
+  routingControl.on('routesfound', () => checkArrival(destination));
 }
 
 function stopNavigation() {
   clearRoute();
   isNavigating = false;
+  hideAllMarkers();
   document.getElementById('lostBtn').classList.remove('hidden');
-  closeBottomCard();
-  clearRoute();
 }
 
 function clearRoute() {
@@ -338,19 +320,12 @@ function clearRoute() {
 // =====================
 function checkArrival(destination) {
   if (!isNavigating) return;
-
   const interval = setInterval(() => {
-    if (!userLocation || !isNavigating) {
-      clearInterval(interval);
-      return;
-    }
-
-    const distance = getDistanceMeters(userLocation, destination);
-
-    if (distance < 20) {
+    if (!userLocation || !isNavigating) { clearInterval(interval); return; }
+    if (getDistanceMeters(userLocation, destination) < 20) {
       clearInterval(interval);
       isNavigating = false;
-      showArrivedToast();
+      showToast("🎉 You've arrived at your destination!");
       clearRoute();
       document.getElementById('lostBtn').classList.remove('hidden');
     }
@@ -358,50 +333,40 @@ function checkArrival(destination) {
 }
 
 // =====================
-// USER LOCATION TRACKING
+// USER LOCATION
 // =====================
 function startTracking() {
   if (!navigator.geolocation) return;
 
-  watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      const { latitude, longitude } = pos.coords;
+  navigator.geolocation.watchPosition(
+    ({ coords: { latitude, longitude } }) => {
       userLocation = [latitude, longitude];
 
       if (!userMarker) {
         userMarker = L.circleMarker([latitude, longitude], {
           radius: 10,
-          fillColor: '#4a90e2',
+          fillColor: '#3b9eff',
           color: '#ffffff',
           weight: 3,
           fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
-
-        // First location — center map
         map.setView([latitude, longitude], 17);
       } else {
         userMarker.setLatLng([latitude, longitude]);
       }
 
-      // Reroute if navigating and off track
       if (isNavigating && routingControl) {
-        const waypoints = routingControl.getWaypoints();
-        if (waypoints.length >= 2) {
+        const wps = routingControl.getWaypoints();
+        if (wps.length >= 2) {
           routingControl.setWaypoints([
             L.latLng(latitude, longitude),
-            waypoints[waypoints.length - 1].latLng
+            wps[wps.length - 1].latLng
           ]);
         }
       }
     },
-    (err) => {
-      console.warn('Location error:', err.message);
-    },
-    {
-      enableHighAccuracy: true,
-      maximumAge: 5000,
-      timeout: 10000
-    }
+    err => console.warn('Location error:', err.message),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
   );
 }
 
@@ -409,29 +374,19 @@ function startTracking() {
 // I'M LOST
 // =====================
 document.getElementById('lostBtn').addEventListener('click', () => {
-  if (!userLocation) {
-    showToast('📍 Still finding your location...');
-    return;
-  }
+  if (!userLocation) { showToast('📍 Still finding your location...'); return; }
 
-  // Find nearest location
-  let nearest = null;
-  let minDist = Infinity;
-
+  let nearest = null, minDist = Infinity;
   allLocations.forEach(feature => {
     const [lng, lat] = feature.geometry.coordinates;
     const dist = getDistanceMeters(userLocation, [lat, lng]);
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = feature;
-    }
+    if (dist < minDist) { minDist = dist; nearest = feature; }
   });
 
   if (nearest) {
-    const name = nearest.properties.Name;
     const meters = Math.round(minDist);
-    showToast(`📍 Nearest: ${name} (${meters}m away)`);
-    map.flyTo([userLocation[0], userLocation[1]], 17);
+    showToast(`📍 Nearest: ${nearest.properties.Name} (${meters}m)`);
+    map.flyTo(userLocation, 17);
     setTimeout(() => selectLocation(nearest), 2000);
   }
 });
@@ -454,11 +409,10 @@ document.getElementById('cancelBtn').addEventListener('click', () => {
   clearRoute();
   hideAllMarkers();
   isNavigating = false;
-  document.getElementById('lostBtn').classList.remove('hidden');
 });
 
 // =====================
-// TOASTS
+// TOAST
 // =====================
 function showToast(message) {
   const toast = document.getElementById('arrivedToast');
@@ -467,53 +421,19 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('show'), 3500);
 }
 
-function showArrivedToast() {
-  showToast("🎉 You've arrived at your destination!");
-}
-
 // =====================
-// OFFLINE HANDLING
+// OFFLINE
 // =====================
 function handleOffline() {
   const banner = document.getElementById('offlineBanner');
-
-  window.addEventListener('offline', () => {
-    banner.classList.add('show');
-  });
-
-  window.addEventListener('online', () => {
-    banner.classList.remove('show');
-  });
-
-  if (!navigator.onLine) {
-    banner.classList.add('show');
-  }
+  window.addEventListener('offline', () => banner.classList.add('show'));
+  window.addEventListener('online', () => banner.classList.remove('show'));
+  if (!navigator.onLine) banner.classList.add('show');
 }
 
 // =====================
-// REAL ETA FROM OSRM
+// DISTANCE HELPER
 // =====================
-async function getRealETA([lat1, lon1], [lat2, lon2]) {
-  try {
-    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=false`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.code === 'Ok' && data.routes.length > 0) {
-      const seconds = data.routes[0].duration;
-      const distance = Math.round(data.routes[0].distance);
-      const minutes = Math.ceil(seconds / 60);
-      return `🚶 ~${minutes} min walk · ${distance}m away`;
-    }
-  } catch (err) {
-    console.warn('OSRM ETA failed:', err);
-  }
-  // Fallback to straight line
-  const distance = getDistanceMeters([lat1, lon1], [lat2, lon2]);
-  const minutes = Math.ceil(distance / 80);
-  return `🚶 ~${minutes} min walk · ${Math.round(distance)}m away`;
-}
-
-
 function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -526,11 +446,9 @@ function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// =====================
-// CLOSE SUGGESTIONS ON MAP CLICK
-// =====================
+// Close search on map tap
 document.getElementById('map').addEventListener('click', () => {
-  closeSuggestions();
+  if (searchOpen) closeSearch();
 });
 
 // =====================
