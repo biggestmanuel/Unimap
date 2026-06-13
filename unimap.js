@@ -4,7 +4,6 @@
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
-const SHEET_PEEK = 280; // px — must match CSS --sheet-peek
 
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
@@ -35,6 +34,8 @@ const POPULAR_LABELS = {
 // =====================
 // STATE
 // =====================
+// 'default' | 'search' | 'location' | 'navigating'
+let currentState = 'default';
 let map, userMarker, userLocation = null;
 let routingControl = null;
 let allLocations = [];
@@ -44,39 +45,49 @@ let isNavigating = false;
 // =====================
 // DOM REFS
 // =====================
-const mapEl          = document.getElementById('map');
-const bottomSheet    = document.getElementById('bottomSheet');
-const sheetDefault   = document.getElementById('sheetDefault');
-const sheetSearch    = document.getElementById('sheetSearch');
-const sheetLocation  = document.getElementById('sheetLocation');
-const searchInput    = document.getElementById('searchInput');
-const overlayInput   = document.getElementById('overlaySearchInput');
-const suggestions    = document.getElementById('suggestions');
-const clearBtn       = document.getElementById('clearBtn');
-const overlayClearBtn= document.getElementById('overlayClearBtn');
-const backBtn        = document.getElementById('backBtn');
-const lostBtn        = document.getElementById('lostBtn');
+const defaultBar   = document.getElementById('defaultBar');
+const fullSheet    = document.getElementById('fullSheet');
+const navBar       = document.getElementById('navBar');
+const navControls  = document.getElementById('navControls');
+const searchInput  = document.getElementById('searchInput');
+const suggestions  = document.getElementById('suggestions');
+const clearBtn     = document.getElementById('clearBtn');
+const backBtn      = document.getElementById('backBtn');
+const lostBtn      = document.getElementById('lostBtn');
+const searchTrigger= document.getElementById('searchTrigger');
 
 // =====================
-// SHEET STATE MACHINE
+// STATE MACHINE
 // =====================
-// States: 'default' | 'search' | 'location'
-function showSheet(state) {
-  sheetDefault.classList.toggle('hidden', state !== 'default');
-  sheetSearch.classList.toggle('active', state === 'search');
-  sheetLocation.classList.toggle('active', state === 'location');
+function setState(state) {
+  currentState = state;
 
-  if (state === 'search') {
-    bottomSheet.classList.add('search-open');
-    mapEl.classList.add('expanded');
-    setTimeout(() => overlayInput.focus(), 80);
-  } else {
-    bottomSheet.classList.remove('search-open');
-    mapEl.classList.remove('expanded');
+  // Hide everything first
+  defaultBar.classList.add('hidden');
+  fullSheet.classList.remove('open');
+  navBar.classList.add('hidden');
+  navControls.classList.remove('visible');
+  lostBtn.classList.add('hidden');
+
+  if (state === 'default') {
+    defaultBar.classList.remove('hidden');
+    lostBtn.classList.remove('hidden');
   }
 
-  // Lost btn visibility
-  lostBtn.classList.toggle('hidden', state === 'search' || isNavigating);
+  if (state === 'search') {
+    fullSheet.classList.add('open');
+    setTimeout(() => searchInput.focus(), 80);
+  }
+
+  if (state === 'location') {
+    navBar.classList.remove('hidden');
+    lostBtn.classList.remove('hidden');
+  }
+
+  if (state === 'navigating') {
+    navControls.classList.add('visible');
+    lostBtn.classList.remove('hidden');
+  }
 }
 
 // =====================
@@ -144,56 +155,68 @@ function renderPopularChips() {
     const chip = document.createElement('button');
     chip.className = 'chip';
     chip.textContent = POPULAR_LABELS[name] || name;
-    chip.style.animationDelay = `${i * 25}ms`;
-    chip.addEventListener('click', () => { showSheet('default'); selectLocation(loc); });
+    chip.style.animationDelay = `${i * 30}ms`;
+    chip.addEventListener('click', () => selectLocation(loc));
     container.appendChild(chip);
   });
 }
 
 // =====================
-// SEARCH
+// SEARCH INTERACTIONS
 // =====================
-// Tap search bar → open search state
-searchInput.addEventListener('focus', () => showSheet('search'));
-searchInput.addEventListener('click', () => showSheet('search'));
+// Open search on tap
+searchTrigger.addEventListener('click', () => setState('search'));
 
+// Back button
 backBtn.addEventListener('click', () => {
-  overlayInput.value = '';
+  searchInput.value = '';
   suggestions.innerHTML = '';
-  overlayClearBtn.classList.remove('visible');
-  showSheet('default');
+  suggestions.classList.remove('open');
+  clearBtn.classList.remove('visible');
+  document.getElementById('popularSection').style.display = 'block';
+  setState('default');
 });
 
-overlayInput.addEventListener('input', () => {
-  const query = overlayInput.value.trim().toLowerCase();
-  overlayClearBtn.classList.toggle('visible', query.length > 0);
-  document.getElementById('popularSection') && (document.getElementById('popularSection').style.display = query ? 'none' : 'block');
+// Live search
+searchInput.addEventListener('input', () => {
+  const query = searchInput.value.trim().toLowerCase();
+  const popularSection = document.getElementById('popularSection');
 
-  if (!query) { suggestions.innerHTML = ''; return; }
+  clearBtn.classList.toggle('visible', query.length > 0);
 
-  const matches = allLocations.filter(f => f.properties.Name.toLowerCase().includes(query));
+  if (!query) {
+    suggestions.innerHTML = '';
+    suggestions.classList.remove('open');
+    popularSection.style.display = 'block';
+    return;
+  }
+
+  popularSection.style.display = 'none';
+
+  const matches = allLocations.filter(f =>
+    f.properties.Name.toLowerCase().includes(query)
+  );
+
   suggestions.innerHTML = '';
+  if (!matches.length) { suggestions.classList.remove('open'); return; }
+
+  suggestions.classList.add('open');
   matches.slice(0, 8).forEach((feature, i) => {
     const li = document.createElement('li');
     li.style.animationDelay = `${i * 25}ms`;
     li.innerHTML = `<span class="sug-icon">📍</span>${feature.properties.Name}`;
-    li.addEventListener('click', () => { showSheet('default'); selectLocation(feature); });
+    li.addEventListener('click', () => selectLocation(feature));
     suggestions.appendChild(li);
   });
 });
 
-overlayClearBtn.addEventListener('click', () => {
-  overlayInput.value = '';
-  suggestions.innerHTML = '';
-  overlayClearBtn.classList.remove('visible');
-  overlayInput.focus();
-});
-
 clearBtn.addEventListener('click', () => {
-  hideAllMarkers();
-  clearRoute();
-  isNavigating = false;
-  showSheet('default');
+  searchInput.value = '';
+  suggestions.innerHTML = '';
+  suggestions.classList.remove('open');
+  clearBtn.classList.remove('visible');
+  document.getElementById('popularSection').style.display = 'block';
+  searchInput.focus();
 });
 
 // =====================
@@ -216,15 +239,17 @@ function showMarker(feature) {
 function selectLocation(feature) {
   selectedLocation = feature;
   const [lng, lat] = feature.geometry.coordinates;
+
   showMarker(feature);
   map.flyTo([lat, lng], 18, { duration: 1.0, easeLinearity: 0.3 });
-  document.getElementById('locationName').textContent = feature.properties.Name;
-  document.getElementById('locationDesc').textContent = feature.properties.description || '';
-  showSheet('location');
+
+  document.getElementById('navLocationName').textContent = feature.properties.Name;
+
+  setState('location');
 }
 
 // =====================
-// NAVIGATION
+// NAVIGATE
 // =====================
 document.getElementById('navigateBtn').addEventListener('click', () => {
   if (!selectedLocation) return;
@@ -236,11 +261,13 @@ document.getElementById('navigateBtn').addEventListener('click', () => {
 function startNavigation(destination) {
   clearRoute();
   isNavigating = true;
-  showSheet('default'); // collapse sheet to peek — map takes over
-  lostBtn.classList.add('hidden');
+  setState('navigating');
 
   routingControl = L.Routing.control({
-    waypoints: [L.latLng(userLocation[0], userLocation[1]), L.latLng(destination[0], destination[1])],
+    waypoints: [
+      L.latLng(userLocation[0], userLocation[1]),
+      L.latLng(destination[0], destination[1])
+    ],
     routeWhileDragging: false,
     addWaypoints: false,
     fitSelectedRoutes: true,
@@ -260,6 +287,14 @@ function clearRoute() {
   if (routingControl) { map.removeControl(routingControl); routingControl = null; }
 }
 
+// Cancel navigation
+document.getElementById('cancelNavBtn').addEventListener('click', () => {
+  clearRoute();
+  hideAllMarkers();
+  isNavigating = false;
+  setState('default');
+});
+
 // =====================
 // ARRIVAL CHECK
 // =====================
@@ -273,20 +308,10 @@ function checkArrival(destination) {
       showToast("🎉 You've arrived at your destination!");
       clearRoute();
       hideAllMarkers();
-      lostBtn.classList.remove('hidden');
+      setState('default');
     }
   }, 3000);
 }
-
-// =====================
-// CANCEL
-// =====================
-document.getElementById('cancelBtn').addEventListener('click', () => {
-  clearRoute();
-  hideAllMarkers();
-  isNavigating = false;
-  showSheet('default');
-});
 
 // =====================
 // USER LOCATION
@@ -304,10 +329,14 @@ function startTracking() {
       } else {
         userMarker.setLatLng([latitude, longitude]);
       }
+      // Reroute if off track
       if (isNavigating && routingControl) {
         const wps = routingControl.getWaypoints();
         if (wps.length >= 2) {
-          routingControl.setWaypoints([L.latLng(latitude, longitude), wps[wps.length - 1].latLng]);
+          routingControl.setWaypoints([
+            L.latLng(latitude, longitude),
+            wps[wps.length - 1].latLng
+          ]);
         }
       }
     },
@@ -369,4 +398,4 @@ function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
 // START
 // =====================
 initMap();
-showSheet('default');
+setState('default');

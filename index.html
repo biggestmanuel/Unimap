@@ -12,65 +12,60 @@
 </head>
 <body>
 
-  <!-- MAP (top portion) -->
+  <!-- MAP -->
   <div id="map"></div>
 
-  <!-- BOTTOM SHEET (always visible, Bolt-style) -->
-  <div class="bottom-sheet" id="bottomSheet">
-    <div class="sheet-handle"></div>
-
-    <!-- Default state: search + popular -->
-    <div class="sheet-default" id="sheetDefault">
-      <div class="search-wrapper" id="searchWrapper">
-        <span class="search-icon">🔍</span>
-        <input
-          type="text"
-          id="searchInput"
-          class="search-input"
-          placeholder="Where are you headed?"
-          autocomplete="off"
-        />
-        <button class="clear-btn" id="clearBtn">✕</button>
-      </div>
-
-      <!-- Popular Places -->
-      <div class="popular-section" id="popularSection">
-        <p class="popular-label">Popular Places</p>
-        <div class="popular-chips" id="popularChips"></div>
-      </div>
+  <!-- STATE 1: Default — tiny search bar at base -->
+  <div class="bar default-bar" id="defaultBar">
+    <div class="search-wrapper" id="searchTrigger">
+      <span class="search-icon">🔍</span>
+      <span class="search-placeholder">Where are you headed?</span>
     </div>
+  </div>
 
-    <!-- Search expanded state -->
-    <div class="sheet-search" id="sheetSearch">
+  <!-- STATE 2: Search open — full sheet -->
+  <div class="full-sheet" id="fullSheet">
+    <div class="sheet-inner">
       <div class="search-top">
         <button class="back-btn" id="backBtn">&#8592;</button>
         <div class="search-wrapper focused">
           <span class="search-icon">🔍</span>
           <input
             type="text"
-            id="overlaySearchInput"
+            id="searchInput"
             class="search-input"
             placeholder="Where are you headed?"
             autocomplete="off"
           />
-          <button class="clear-btn" id="overlayClearBtn">✕</button>
+          <button class="clear-btn" id="clearBtn">✕</button>
         </div>
       </div>
-      <ul class="suggestions" id="suggestions"></ul>
-    </div>
 
-    <!-- Location selected state -->
-    <div class="sheet-location" id="sheetLocation">
-      <h3 class="location-name" id="locationName"></h3>
-      <p class="location-desc" id="locationDesc"></p>
-      <div class="card-actions">
-        <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
-        <button class="btn-cancel" id="cancelBtn">Cancel</button>
+      <!-- Suggestions (shown when typing) -->
+      <ul class="suggestions" id="suggestions"></ul>
+
+      <!-- Popular Places (shown by default) -->
+      <div class="popular-section" id="popularSection">
+        <p class="popular-label">Popular Places</p>
+        <div class="popular-chips" id="popularChips"></div>
       </div>
     </div>
   </div>
 
-  <!-- I'm Lost Button -->
+  <!-- STATE 3: Location selected — navigate bar at base -->
+  <div class="bar nav-bar" id="navBar">
+    <div class="nav-bar-inner">
+      <div class="nav-location-name" id="navLocationName"></div>
+      <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
+    </div>
+  </div>
+
+  <!-- STATE 4: Navigating — floating controls -->
+  <div class="nav-controls" id="navControls">
+    <button class="btn-cancel-nav" id="cancelNavBtn">✕ Cancel Navigation</button>
+  </div>
+
+  <!-- I'm Lost (visible in states 1, 3, 4) -->
   <button class="lost-btn" id="lostBtn">
     <span>😵</span>
     <span class="lost-text">I'm Lost</span>
@@ -78,7 +73,6 @@
 
   <!-- Toast -->
   <div class="toast" id="arrivedToast">
-    <span class="toast-icon">🎉</span>
     <span class="toast-msg">You've arrived!</span>
   </div>
 
