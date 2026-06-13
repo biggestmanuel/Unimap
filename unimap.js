@@ -98,22 +98,22 @@ async function loadLocations() {
 
     allLocations = data.features.filter(f => f.geometry.type === 'Point');
 
-    // Add markers to map
+    // Add markers to map (hidden by default)
     allLocations.forEach(feature => {
       const [lng, lat] = feature.geometry.coordinates;
       const name = feature.properties.Name;
       const desc = feature.properties.description;
 
       const marker = L.circleMarker([lat, lng], {
-        radius: 7,
+        radius: 8,
         fillColor: '#2563eb',
         color: '#ffffff',
         weight: 2,
-        opacity: 1,
-        fillOpacity: 0.9
+        opacity: 0,
+        fillOpacity: 0
       }).addTo(map);
 
-      marker.bindPopup(`<strong>${name}</strong>${desc ? `<br><span style="color:#6b7f74;font-size:12px">${desc}</span>` : ''}`);
+      marker.bindPopup(`<strong>${name}</strong>${desc ? `<br><span style="color:#6b7fa3;font-size:12px">${desc}</span>` : ''}`);
 
       marker.on('click', () => {
         selectLocation(feature);
@@ -153,8 +153,24 @@ function renderPopularChips() {
 }
 
 // =====================
-// SEARCH
+// MARKER VISIBILITY
 // =====================
+function hideAllMarkers() {
+  allLocations.forEach(feature => {
+    if (feature._marker) {
+      feature._marker.setStyle({ opacity: 0, fillOpacity: 0 });
+    }
+  });
+}
+
+function showMarker(feature) {
+  hideAllMarkers();
+  if (feature._marker) {
+    feature._marker.setStyle({ opacity: 1, fillOpacity: 0.9 });
+  }
+}
+
+
 const searchInput = document.getElementById('searchInput');
 const suggestionsList = document.getElementById('suggestions');
 const clearBtn = document.getElementById('clearBtn');
@@ -204,6 +220,7 @@ clearBtn.addEventListener('click', () => {
   popularSection.style.display = 'block';
   closeBottomCard();
   clearRoute();
+  hideAllMarkers();
 });
 
 function closeSuggestions() {
@@ -219,6 +236,9 @@ function selectLocation(feature) {
   const [lng, lat] = feature.geometry.coordinates;
   const name = feature.properties.Name;
   const desc = feature.properties.description;
+
+  // Show only this marker
+  showMarker(feature);
 
   // Fly to location
   map.flyTo([lat, lng], 18, { duration: 1.2 });
@@ -432,6 +452,7 @@ function closeBottomCard() {
 document.getElementById('cancelBtn').addEventListener('click', () => {
   closeBottomCard();
   clearRoute();
+  hideAllMarkers();
   isNavigating = false;
   document.getElementById('lostBtn').classList.remove('hidden');
 });
