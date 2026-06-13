@@ -4,23 +4,14 @@
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
+const SHEET_PEEK = 280; // px — must match CSS --sheet-peek
 
 const POPULAR_PLACES = [
-  "UST Shuttle Park",
-  "Convocation Arena",
-  "Faculty of Management Sciences",
-  "FACULTY OF ENGINEERING",
-  "Faculty of Law, Rivers State University",
-  "F&G hostel",
-  "NDDC Hostel",
-  "Hostel C",
-  "Shopping Complex",
-  "Love Garden",
-  "PG&H Hostel",
-  "Back Gate Shuttle Park",
-  "UST Back Gate",
-  "CCE(Centre for Continuous Education)",
-  "College of Medical Sciences, RSU"
+  "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
+  "FACULTY OF ENGINEERING","Faculty of Law, Rivers State University",
+  "F&G hostel","NDDC Hostel","Hostel C","Shopping Complex","Love Garden",
+  "PG&H Hostel","Back Gate Shuttle Park","UST Back Gate",
+  "CCE(Centre for Continuous Education)","College of Medical Sciences, RSU"
 ];
 
 const POPULAR_LABELS = {
@@ -49,7 +40,44 @@ let routingControl = null;
 let allLocations = [];
 let selectedLocation = null;
 let isNavigating = false;
-let searchOpen = false;
+
+// =====================
+// DOM REFS
+// =====================
+const mapEl          = document.getElementById('map');
+const bottomSheet    = document.getElementById('bottomSheet');
+const sheetDefault   = document.getElementById('sheetDefault');
+const sheetSearch    = document.getElementById('sheetSearch');
+const sheetLocation  = document.getElementById('sheetLocation');
+const searchInput    = document.getElementById('searchInput');
+const overlayInput   = document.getElementById('overlaySearchInput');
+const suggestions    = document.getElementById('suggestions');
+const clearBtn       = document.getElementById('clearBtn');
+const overlayClearBtn= document.getElementById('overlayClearBtn');
+const backBtn        = document.getElementById('backBtn');
+const lostBtn        = document.getElementById('lostBtn');
+
+// =====================
+// SHEET STATE MACHINE
+// =====================
+// States: 'default' | 'search' | 'location'
+function showSheet(state) {
+  sheetDefault.classList.toggle('hidden', state !== 'default');
+  sheetSearch.classList.toggle('active', state === 'search');
+  sheetLocation.classList.toggle('active', state === 'location');
+
+  if (state === 'search') {
+    bottomSheet.classList.add('search-open');
+    mapEl.classList.add('expanded');
+    setTimeout(() => overlayInput.focus(), 80);
+  } else {
+    bottomSheet.classList.remove('search-open');
+    mapEl.classList.remove('expanded');
+  }
+
+  // Lost btn visibility
+  lostBtn.classList.toggle('hidden', state === 'search' || isNavigating);
+}
 
 // =====================
 // INIT MAP
@@ -89,12 +117,8 @@ async function loadLocations() {
       const desc = feature.properties.description;
 
       const marker = L.circleMarker([lat, lng], {
-        radius: 8,
-        fillColor: '#2563eb',
-        color: '#ffffff',
-        weight: 2,
-        opacity: 0,
-        fillOpacity: 0
+        radius: 8, fillColor: '#2563eb', color: '#ffffff',
+        weight: 2, opacity: 0, fillOpacity: 0
       }).addTo(map);
 
       marker.bindPopup(`<strong>${name}</strong>${desc ? `<br><span style="color:#6b7fa3;font-size:12px">${desc}</span>` : ''}`);
@@ -114,98 +138,46 @@ async function loadLocations() {
 function renderPopularChips() {
   const container = document.getElementById('popularChips');
   container.innerHTML = '';
-
   POPULAR_PLACES.forEach((name, i) => {
-    const location = allLocations.find(f => f.properties.Name === name);
-    if (!location) return;
-
+    const loc = allLocations.find(f => f.properties.Name === name);
+    if (!loc) return;
     const chip = document.createElement('button');
     chip.className = 'chip';
     chip.textContent = POPULAR_LABELS[name] || name;
-    chip.style.animationDelay = `${i * 30}ms`;
-    chip.addEventListener('click', () => {
-      closeSearch();
-      selectLocation(location);
-    });
+    chip.style.animationDelay = `${i * 25}ms`;
+    chip.addEventListener('click', () => { showSheet('default'); selectLocation(loc); });
     container.appendChild(chip);
   });
 }
 
 // =====================
-// SEARCH OVERLAY
+// SEARCH
 // =====================
-const searchInput = document.getElementById('searchInput');
-const overlayInput = document.getElementById('overlaySearchInput');
-const overlay = document.getElementById('searchOverlay');
-const suggestions = document.getElementById('suggestions');
-const header = document.getElementById('header');
-const searchPanel = document.getElementById('searchPanel');
-const backBtn = document.getElementById('backBtn');
-const overlayBackBtn = document.getElementById('overlayBackBtn');
-const clearBtn = document.getElementById('clearBtn');
-const overlayClearBtn = document.getElementById('overlayClearBtn');
+// Tap search bar → open search state
+searchInput.addEventListener('focus', () => showSheet('search'));
+searchInput.addEventListener('click', () => showSheet('search'));
 
-// Open search when tapping the readonly input
-searchInput.addEventListener('click', openSearch);
-
-function openSearch() {
-  searchOpen = true;
-  overlay.classList.add('open');
-  header.classList.add('hide');
-  searchPanel.classList.add('expanded');
-  setTimeout(() => overlayInput.focus(), 50);
-}
-
-function closeSearch() {
-  searchOpen = false;
-  overlay.classList.remove('open');
-  header.classList.remove('hide');
-  searchPanel.classList.remove('expanded');
+backBtn.addEventListener('click', () => {
   overlayInput.value = '';
   suggestions.innerHTML = '';
-  suggestions.style.display = 'none';
   overlayClearBtn.classList.remove('visible');
-  document.getElementById('popularSection').style.display = 'block';
-}
+  showSheet('default');
+});
 
-overlayBackBtn.addEventListener('click', closeSearch);
-backBtn.addEventListener('click', closeSearch);
-
-// Live search in overlay
 overlayInput.addEventListener('input', () => {
   const query = overlayInput.value.trim().toLowerCase();
+  overlayClearBtn.classList.toggle('visible', query.length > 0);
+  document.getElementById('popularSection') && (document.getElementById('popularSection').style.display = query ? 'none' : 'block');
 
-  if (query.length === 0) {
-    suggestions.innerHTML = '';
-    suggestions.style.display = 'none';
-    overlayClearBtn.classList.remove('visible');
-    document.getElementById('popularSection').style.display = 'block';
-    return;
-  }
+  if (!query) { suggestions.innerHTML = ''; return; }
 
-  overlayClearBtn.classList.add('visible');
-  document.getElementById('popularSection').style.display = 'none';
-
-  const matches = allLocations.filter(f =>
-    f.properties.Name.toLowerCase().includes(query)
-  );
-
+  const matches = allLocations.filter(f => f.properties.Name.toLowerCase().includes(query));
   suggestions.innerHTML = '';
-
-  if (matches.length === 0) {
-    suggestions.style.display = 'none';
-    return;
-  }
-
-  suggestions.style.display = 'block';
   matches.slice(0, 8).forEach((feature, i) => {
     const li = document.createElement('li');
-    li.style.animationDelay = `${i * 30}ms`;
+    li.style.animationDelay = `${i * 25}ms`;
     li.innerHTML = `<span class="sug-icon">📍</span>${feature.properties.Name}`;
-    li.addEventListener('click', () => {
-      closeSearch();
-      selectLocation(feature);
-    });
+    li.addEventListener('click', () => { showSheet('default'); selectLocation(feature); });
     suggestions.appendChild(li);
   });
 });
@@ -213,17 +185,15 @@ overlayInput.addEventListener('input', () => {
 overlayClearBtn.addEventListener('click', () => {
   overlayInput.value = '';
   suggestions.innerHTML = '';
-  suggestions.style.display = 'none';
   overlayClearBtn.classList.remove('visible');
-  document.getElementById('popularSection').style.display = 'block';
   overlayInput.focus();
 });
 
 clearBtn.addEventListener('click', () => {
-  closeSearch();
-  closeBottomCard();
-  clearRoute();
   hideAllMarkers();
+  clearRoute();
+  isNavigating = false;
+  showSheet('default');
 });
 
 // =====================
@@ -237,9 +207,7 @@ function hideAllMarkers() {
 
 function showMarker(feature) {
   hideAllMarkers();
-  if (feature._marker) {
-    feature._marker.setStyle({ opacity: 1, fillOpacity: 0.9 });
-  }
+  if (feature._marker) feature._marker.setStyle({ opacity: 1, fillOpacity: 0.9 });
 }
 
 // =====================
@@ -248,16 +216,11 @@ function showMarker(feature) {
 function selectLocation(feature) {
   selectedLocation = feature;
   const [lng, lat] = feature.geometry.coordinates;
-  const name = feature.properties.Name;
-  const desc = feature.properties.description;
-
   showMarker(feature);
   map.flyTo([lat, lng], 18, { duration: 1.0, easeLinearity: 0.3 });
-
-  document.getElementById('locationName').textContent = name;
-  document.getElementById('locationDesc').textContent = desc || '';
-
-  openBottomCard();
+  document.getElementById('locationName').textContent = feature.properties.Name;
+  document.getElementById('locationDesc').textContent = feature.properties.description || '';
+  showSheet('location');
 }
 
 // =====================
@@ -265,25 +228,19 @@ function selectLocation(feature) {
 // =====================
 document.getElementById('navigateBtn').addEventListener('click', () => {
   if (!selectedLocation) return;
-  if (!userLocation) {
-    showToast('📍 Still finding your location...');
-    return;
-  }
+  if (!userLocation) { showToast('📍 Still finding your location...'); return; }
   const [lng, lat] = selectedLocation.geometry.coordinates;
   startNavigation([lat, lng]);
-  closeBottomCard();
 });
 
 function startNavigation(destination) {
   clearRoute();
   isNavigating = true;
-  document.getElementById('lostBtn').classList.add('hidden');
+  showSheet('default'); // collapse sheet to peek — map takes over
+  lostBtn.classList.add('hidden');
 
   routingControl = L.Routing.control({
-    waypoints: [
-      L.latLng(userLocation[0], userLocation[1]),
-      L.latLng(destination[0], destination[1])
-    ],
+    waypoints: [L.latLng(userLocation[0], userLocation[1]), L.latLng(destination[0], destination[1])],
     routeWhileDragging: false,
     addWaypoints: false,
     fitSelectedRoutes: true,
@@ -292,27 +249,15 @@ function startNavigation(destination) {
       serviceUrl: 'https://router.project-osrm.org/route/v1',
       profile: 'foot'
     }),
-    lineOptions: {
-      styles: [{ color: '#2563eb', weight: 5, opacity: 0.9 }]
-    },
+    lineOptions: { styles: [{ color: '#2563eb', weight: 5, opacity: 0.9 }] },
     createMarker: () => null
   }).addTo(map);
 
   routingControl.on('routesfound', () => checkArrival(destination));
 }
 
-function stopNavigation() {
-  clearRoute();
-  isNavigating = false;
-  hideAllMarkers();
-  document.getElementById('lostBtn').classList.remove('hidden');
-}
-
 function clearRoute() {
-  if (routingControl) {
-    map.removeControl(routingControl);
-    routingControl = null;
-  }
+  if (routingControl) { map.removeControl(routingControl); routingControl = null; }
 }
 
 // =====================
@@ -327,41 +272,42 @@ function checkArrival(destination) {
       isNavigating = false;
       showToast("🎉 You've arrived at your destination!");
       clearRoute();
-      document.getElementById('lostBtn').classList.remove('hidden');
+      hideAllMarkers();
+      lostBtn.classList.remove('hidden');
     }
   }, 3000);
 }
+
+// =====================
+// CANCEL
+// =====================
+document.getElementById('cancelBtn').addEventListener('click', () => {
+  clearRoute();
+  hideAllMarkers();
+  isNavigating = false;
+  showSheet('default');
+});
 
 // =====================
 // USER LOCATION
 // =====================
 function startTracking() {
   if (!navigator.geolocation) return;
-
   navigator.geolocation.watchPosition(
     ({ coords: { latitude, longitude } }) => {
       userLocation = [latitude, longitude];
-
       if (!userMarker) {
         userMarker = L.circleMarker([latitude, longitude], {
-          radius: 10,
-          fillColor: '#3b9eff',
-          color: '#ffffff',
-          weight: 3,
-          fillOpacity: 1
+          radius: 10, fillColor: '#3b9eff', color: '#ffffff', weight: 3, fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
         map.setView([latitude, longitude], 17);
       } else {
         userMarker.setLatLng([latitude, longitude]);
       }
-
       if (isNavigating && routingControl) {
         const wps = routingControl.getWaypoints();
         if (wps.length >= 2) {
-          routingControl.setWaypoints([
-            L.latLng(latitude, longitude),
-            wps[wps.length - 1].latLng
-          ]);
+          routingControl.setWaypoints([L.latLng(latitude, longitude), wps[wps.length - 1].latLng]);
         }
       }
     },
@@ -373,42 +319,19 @@ function startTracking() {
 // =====================
 // I'M LOST
 // =====================
-document.getElementById('lostBtn').addEventListener('click', () => {
+lostBtn.addEventListener('click', () => {
   if (!userLocation) { showToast('📍 Still finding your location...'); return; }
-
   let nearest = null, minDist = Infinity;
   allLocations.forEach(feature => {
     const [lng, lat] = feature.geometry.coordinates;
     const dist = getDistanceMeters(userLocation, [lat, lng]);
     if (dist < minDist) { minDist = dist; nearest = feature; }
   });
-
   if (nearest) {
-    const meters = Math.round(minDist);
-    showToast(`📍 Nearest: ${nearest.properties.Name} (${meters}m)`);
+    showToast(`📍 Nearest: ${nearest.properties.Name} (${Math.round(minDist)}m)`);
     map.flyTo(userLocation, 17);
     setTimeout(() => selectLocation(nearest), 2000);
   }
-});
-
-// =====================
-// BOTTOM CARD
-// =====================
-function openBottomCard() {
-  document.getElementById('bottomCard').classList.add('open');
-  document.getElementById('lostBtn').classList.add('hidden');
-}
-
-function closeBottomCard() {
-  document.getElementById('bottomCard').classList.remove('open');
-  document.getElementById('lostBtn').classList.remove('hidden');
-}
-
-document.getElementById('cancelBtn').addEventListener('click', () => {
-  closeBottomCard();
-  clearRoute();
-  hideAllMarkers();
-  isNavigating = false;
 });
 
 // =====================
@@ -438,20 +361,12 @@ function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-
-// Close search on map tap
-document.getElementById('map').addEventListener('click', () => {
-  if (searchOpen) closeSearch();
-});
 
 // =====================
 // START
 // =====================
 initMap();
+showSheet('default');

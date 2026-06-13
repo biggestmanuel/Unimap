@@ -5,86 +5,73 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UniMap — Navigate RSU</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <!-- Leaflet Routing Machine CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-  <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
-
   <link rel="stylesheet" href="unimap.css" />
 </head>
 <body>
 
-  <!-- Header -->
-  <header class="header" id="header">
-    <div class="logo">
-      <img src="logo.png" alt="UniMap" class="logo-img" />
-    </div>
-    <div class="header-sub">Rivers State University</div>
-  </header>
-
-  <!-- Search Panel (always visible bar) -->
-  <div class="search-panel" id="searchPanel">
-    <div class="search-wrapper">
-      <button class="back-btn" id="backBtn">&#8592;</button>
-      <span class="search-icon">🔍</span>
-      <input
-        type="text"
-        id="searchInput"
-        class="search-input"
-        placeholder="Where are you headed?"
-        autocomplete="off"
-        readonly
-      />
-      <button class="clear-btn" id="clearBtn" title="Clear">✕</button>
-    </div>
-  </div>
-
-  <!-- Search Overlay (slides up when search is focused) -->
-  <div class="search-overlay" id="searchOverlay">
-    <div class="search-wrapper" style="margin: 0 16px;">
-      <button class="back-btn visible" id="overlayBackBtn">&#8592;</button>
-      <span class="search-icon">🔍</span>
-      <input
-        type="text"
-        id="overlaySearchInput"
-        class="search-input"
-        placeholder="Where are you headed?"
-        autocomplete="off"
-      />
-      <button class="clear-btn" id="overlayClearBtn" title="Clear">✕</button>
-    </div>
-
-    <!-- Suggestions -->
-    <ul class="suggestions" id="suggestions"></ul>
-
-    <!-- Popular Places -->
-    <div class="popular-section" id="popularSection">
-      <p class="popular-label">Popular Places</p>
-      <div class="popular-chips" id="popularChips"></div>
-    </div>
-  </div>
-
-  <!-- Map -->
+  <!-- MAP (top portion) -->
   <div id="map"></div>
 
-  <!-- Bottom Card -->
-  <div class="bottom-card" id="bottomCard">
-    <div class="bottom-card-handle"></div>
-    <div class="location-info">
+  <!-- BOTTOM SHEET (always visible, Bolt-style) -->
+  <div class="bottom-sheet" id="bottomSheet">
+    <div class="sheet-handle"></div>
+
+    <!-- Default state: search + popular -->
+    <div class="sheet-default" id="sheetDefault">
+      <div class="search-wrapper" id="searchWrapper">
+        <span class="search-icon">🔍</span>
+        <input
+          type="text"
+          id="searchInput"
+          class="search-input"
+          placeholder="Where are you headed?"
+          autocomplete="off"
+        />
+        <button class="clear-btn" id="clearBtn">✕</button>
+      </div>
+
+      <!-- Popular Places -->
+      <div class="popular-section" id="popularSection">
+        <p class="popular-label">Popular Places</p>
+        <div class="popular-chips" id="popularChips"></div>
+      </div>
+    </div>
+
+    <!-- Search expanded state -->
+    <div class="sheet-search" id="sheetSearch">
+      <div class="search-top">
+        <button class="back-btn" id="backBtn">&#8592;</button>
+        <div class="search-wrapper focused">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            id="overlaySearchInput"
+            class="search-input"
+            placeholder="Where are you headed?"
+            autocomplete="off"
+          />
+          <button class="clear-btn" id="overlayClearBtn">✕</button>
+        </div>
+      </div>
+      <ul class="suggestions" id="suggestions"></ul>
+    </div>
+
+    <!-- Location selected state -->
+    <div class="sheet-location" id="sheetLocation">
       <h3 class="location-name" id="locationName"></h3>
       <p class="location-desc" id="locationDesc"></p>
-    </div>
-    <div class="card-actions">
-      <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
-      <button class="btn-cancel" id="cancelBtn">Cancel</button>
+      <div class="card-actions">
+        <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
+        <button class="btn-cancel" id="cancelBtn">Cancel</button>
+      </div>
     </div>
   </div>
 
   <!-- I'm Lost Button -->
-  <button class="lost-btn" id="lostBtn" title="I'm Lost">
+  <button class="lost-btn" id="lostBtn">
     <span>😵</span>
     <span class="lost-text">I'm Lost</span>
   </button>
@@ -100,7 +87,6 @@
     📵 You're offline — using cached map
   </div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
   <script src="unimap.js"></script>
