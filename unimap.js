@@ -4,6 +4,7 @@
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
+const ARRIVAL_RADIUS_M = 20;
 
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
@@ -31,12 +32,18 @@ const POPULAR_LABELS = {
   "College of Medical Sciences, RSU":          "Med Sciences"
 };
 
+const DEFAULT_MARKER_STYLE  = { radius: 6, fillColor: '#2563EB', color: '#ffffff', weight: 2, opacity: 0.9, fillOpacity: 0.55 };
+const SELECTED_MARKER_STYLE = { radius: 9, fillColor: '#2563EB', color: '#ffffff', weight: 3, opacity: 1,   fillOpacity: 0.95 };
+
 /* ── State ── */
 let map, userMarker, userLocation = null;
 let routingControl = null;
 let allLocations   = [];
 let selectedLoc    = null;
 let isNavigating   = false;
+let hasCenteredOnUser = false;
+let navDestination = null;
+let activeSuggestionIndex = -1;
 
 /* ── DOM ── */
 const $ = id => document.getElementById(id);
@@ -44,6 +51,7 @@ const defaultBar  = $('defaultBar');
 const fullSheet   = $('fullSheet');
 const navBar      = $('navBar');
 const navOverlay  = $('navOverlay');
+const navEta      = $('navEta');
 const searchInput = $('searchInput');
 const suggestions = $('suggestions');
 const clearBtn    = $('clearBtn');
@@ -115,10 +123,9 @@ async function loadLocations() {
       const name = feature.properties.Name;
       const desc = feature.properties.description;
 
-      const m = L.circleMarker([lat, lng], {
-        radius: 8, fillColor: '#2563EB', color: '#ffffff',
-        weight: 2.5, opacity: 0, fillOpacity: 0
-      }).addTo(map);
+      // Markers are visible (dimly) by default so the map is browsable,
+      // not just reachable through search / chips / "I'm Lost".
+      const m = L.circleMarker([lat, lng], DEFAULT_MARKER_STYLE).addTo(map);
 
       m.bindPopup(
         `<strong>${name}</strong>` +
@@ -131,6 +138,7 @@ async function loadLocations() {
     buildChips();
   } catch (e) {
     console.error('GeoJSON load failed:', e);
+    toast('⚠️ Could not load campus locations');
   }
 }
 
@@ -156,6 +164,9 @@ function buildChips() {
    SEARCH
    ════════════════════════════════ */
 $('searchTrigger').addEventListener('click', () => setState('search'));
+$('searchTrigger').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setState('search'); }
+});
 
 $('backBtn').addEventListener('click', () => {
   resetSearch();
@@ -166,18 +177,22 @@ searchInput.addEventListener('input', () => {
   const q = searchInput.value.trim().toLowerCase();
   clearBtn.classList.toggle('visible', q.length > 0);
   $('popularWrap').style.display = q ? 'none' : 'block';
+  activeSuggestionIndex = -1;
 
-  if (!q) { suggestions.innerHTML = ''; suggestions.classList.remove('open'); return; }
+  if (!q) { suggestions.innerHTML = ''; suggestions.classList.remove('open'); searchInput.setAttribute('aria-expanded', 'false'); return; }
 
   const hits = allLocations.filter(f => f.properties.Name.toLowerCase().includes(q));
   suggestions.innerHTML = '';
 
-  if (!hits.length) { suggestions.classList.remove('open'); return; }
+  if (!hits.length) { suggestions.classList.remove('open'); searchInput.setAttribute('aria-expanded', 'false'); return; }
 
   suggestions.classList.add('open');
+  searchInput.setAttribute('aria-expanded', 'true');
   hits.slice(0, 8).forEach((feature, i) => {
     const li = document.createElement('li');
     li.style.animationDelay = `${i * 28}ms`;
+    li.setAttribute('role', 'option');
+    li.tabIndex = -1;
     li.innerHTML = `
       <div class="sug-dot">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -188,6 +203,34 @@ searchInput.addEventListener('input', () => {
     suggestions.appendChild(li);
   });
 });
+
+// Keyboard navigation through suggestions (Arrow Up/Down + Enter)
+searchInput.addEventListener('keydown', e => {
+  const items = Array.from(suggestions.querySelectorAll('li'));
+  if (!items.length) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    activeSuggestionIndex = Math.min(activeSuggestionIndex + 1, items.length - 1);
+    updateActiveSuggestion(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    activeSuggestionIndex = Math.max(activeSuggestionIndex - 1, 0);
+    updateActiveSuggestion(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
+      items[activeSuggestionIndex].click();
+    }
+  } else if (e.key === 'Escape') {
+    resetSearch();
+  }
+});
+
+function updateActiveSuggestion(items) {
+  items.forEach((li, i) => li.classList.toggle('sug-active', i === activeSuggestionIndex));
+  items[activeSuggestionIndex]?.scrollIntoView({ block: 'nearest' });
+}
 
 clearBtn.addEventListener('click', () => {
   searchInput.value = '';
@@ -203,6 +246,8 @@ function resetSearch() {
   clearBtn.classList.remove('visible');
   suggestions.innerHTML = '';
   suggestions.classList.remove('open');
+  searchInput.setAttribute('aria-expanded', 'false');
+  activeSuggestionIndex = -1;
   $('popularWrap').style.display = 'block';
 }
 
@@ -210,12 +255,13 @@ function resetSearch() {
    MARKERS
    ════════════════════════════════ */
 function hideAllMarkers() {
-  allLocations.forEach(f => f._marker?.setStyle({ opacity: 0, fillOpacity: 0 }));
+  allLocations.forEach(f => f._marker?.setStyle(DEFAULT_MARKER_STYLE));
 }
 
 function showMarker(feature) {
   hideAllMarkers();
-  feature._marker?.setStyle({ opacity: 1, fillOpacity: 0.95 });
+  feature._marker?.setStyle(SELECTED_MARKER_STYLE);
+  feature._marker?.bringToFront();
 }
 
 /* ════════════════════════════════
@@ -244,6 +290,8 @@ $('navigateBtn').addEventListener('click', () => {
 function startNav(dest) {
   clearRoute();
   isNavigating = true;
+  navDestination = dest;
+  navEta.textContent = '';
   setState('navigating');
 
   routingControl = L.Routing.control({
@@ -262,11 +310,29 @@ function startNav(dest) {
     createMarker: () => null
   }).addTo(map);
 
-  routingControl.on('routesfound', () => checkArrival(dest));
+  routingControl.on('routesfound', e => updateEta(e));
+  routingControl.on('routingerror', () => {
+    toast("⚠️ Couldn't find a walking route — try again");
+  });
+}
+
+/* Update the live "X m · Y min" readout shown during navigation.
+   routesfound fires again whenever waypoints are recalculated
+   (e.g. as the user's GPS position updates), so this just refreshes
+   the label rather than spawning any new timers/listeners. */
+function updateEta(e) {
+  const route = e?.routes?.[0];
+  if (!route?.summary) return;
+  const meters = route.summary.totalDistance;
+  const mins   = Math.max(1, Math.round(route.summary.totalTime / 60));
+  const distText = meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  navEta.textContent = `${distText} · ${mins} min walk`;
 }
 
 function clearRoute() {
   if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+  navDestination = null;
+  navEta.textContent = '';
 }
 
 $('cancelNavBtn').addEventListener('click', () => {
@@ -278,26 +344,29 @@ $('cancelNavBtn').addEventListener('click', () => {
 
 /* ════════════════════════════════
    ARRIVAL CHECK
-   ════════════════════════════════ */
-function checkArrival(dest) {
-  const iv = setInterval(() => {
-    if (!userLocation || !isNavigating) { clearInterval(iv); return; }
-    if (dist(userLocation, dest) < 20) {
-      clearInterval(iv);
-      isNavigating = false;
-      clearRoute();
-      hideAllMarkers();
-      toast("🎉 You've arrived!");
-      setState('default');
-    }
-  }, 3000);
+   ════════════════════════════════
+   Checked directly off each geolocation update in trackUser()
+   rather than via its own setInterval — avoids stacking up
+   duplicate timers every time the route recalculates. */
+function maybeCheckArrival() {
+  if (!isNavigating || !navDestination || !userLocation) return;
+  if (dist(userLocation, navDestination) < ARRIVAL_RADIUS_M) {
+    isNavigating = false;
+    clearRoute();
+    hideAllMarkers();
+    toast("🎉 You've arrived!");
+    setState('default');
+  }
 }
 
 /* ════════════════════════════════
    USER LOCATION
    ════════════════════════════════ */
 function trackUser() {
-  if (!navigator.geolocation) return;
+  if (!navigator.geolocation) {
+    toast('📍 Geolocation not supported on this device');
+    return;
+  }
   navigator.geolocation.watchPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       userLocation = [lat, lng];
@@ -305,18 +374,39 @@ function trackUser() {
         userMarker = L.circleMarker([lat, lng], {
           radius: 10, fillColor: '#3B82F6', color: '#fff', weight: 3, fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
-        map.setView([lat, lng], 17);
+
+        // Only auto-recenter on the very first fix, and only if the
+        // user is actually within the campus bounds — otherwise this
+        // fights maxBounds and snaps the view somewhere confusing.
+        if (!hasCenteredOnUser) {
+          hasCenteredOnUser = true;
+          if (RSU_BOUNDS.contains([lat, lng])) {
+            map.setView([lat, lng], 17);
+          }
+        }
       } else {
         userMarker.setLatLng([lat, lng]);
       }
+
       if (isNavigating && routingControl) {
         const wps = routingControl.getWaypoints();
         if (wps.length >= 2) {
           routingControl.setWaypoints([L.latLng(lat, lng), wps.at(-1).latLng]);
         }
+        // Keep the map following the user while they're walking a route.
+        map.panTo([lat, lng], { animate: true, duration: 0.6 });
+      }
+
+      maybeCheckArrival();
+    },
+    err => {
+      console.warn('Geolocation error:', err.message);
+      if (err.code === err.PERMISSION_DENIED) {
+        toast('📍 Location access denied — enable it in your browser settings to navigate');
+      } else if (err.code === err.TIMEOUT) {
+        toast('📍 Location signal lost — retrying…');
       }
     },
-    err => console.warn('Geolocation error:', err.message),
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
   );
 }
