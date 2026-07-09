@@ -1,6 +1,6 @@
-/* =====================
-   UNIMAP — MAIN SCRIPT
-   ===================== */
+/* ================================================
+   UNIMAP — Main Script
+   ================================================ */
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
@@ -14,111 +14,99 @@ const POPULAR_PLACES = [
 ];
 
 const POPULAR_LABELS = {
-  "UST Shuttle Park": "Shuttle Park",
-  "Convocation Arena": "Convo Arena",
-  "Faculty of Management Sciences": "Management",
-  "FACULTY OF ENGINEERING": "Engineering",
-  "Faculty of Law, Rivers State University": "Law Faculty",
-  "F&G hostel": "F&G Hostel",
-  "NDDC Hostel": "NDDC Hostel",
-  "Hostel C": "Hostel C",
-  "Shopping Complex": "Shopping Complex",
-  "Love Garden": "Love Garden",
-  "PG&H Hostel": "PG&H Hostel",
-  "Back Gate Shuttle Park": "Back Gate Park",
-  "UST Back Gate": "Back Gate",
-  "CCE(Centre for Continuous Education)": "CCE",
-  "College of Medical Sciences, RSU": "Med Sciences"
+  "UST Shuttle Park":                          "Shuttle Park",
+  "Convocation Arena":                         "Convo Arena",
+  "Faculty of Management Sciences":            "Management",
+  "FACULTY OF ENGINEERING":                    "Engineering",
+  "Faculty of Law, Rivers State University":   "Law Faculty",
+  "F&G hostel":                                "F&G Hostel",
+  "NDDC Hostel":                               "NDDC Hostel",
+  "Hostel C":                                  "Hostel C",
+  "Shopping Complex":                          "Shopping Complex",
+  "Love Garden":                               "Love Garden",
+  "PG&H Hostel":                               "PG&H Hostel",
+  "Back Gate Shuttle Park":                    "Back Gate Park",
+  "UST Back Gate":                             "Back Gate",
+  "CCE(Centre for Continuous Education)":      "CCE",
+  "College of Medical Sciences, RSU":          "Med Sciences"
 };
 
-// =====================
-// STATE
-// =====================
-// 'default' | 'search' | 'location' | 'navigating'
-let currentState = 'default';
+/* ── State ── */
 let map, userMarker, userLocation = null;
 let routingControl = null;
-let allLocations = [];
-let selectedLocation = null;
-let isNavigating = false;
+let allLocations   = [];
+let selectedLoc    = null;
+let isNavigating   = false;
 
-// =====================
-// DOM REFS
-// =====================
-const defaultBar   = document.getElementById('defaultBar');
-const fullSheet    = document.getElementById('fullSheet');
-const navBar       = document.getElementById('navBar');
-const navControls  = document.getElementById('navControls');
-const searchInput  = document.getElementById('searchInput');
-const suggestions  = document.getElementById('suggestions');
-const clearBtn     = document.getElementById('clearBtn');
-const backBtn      = document.getElementById('backBtn');
-const lostBtn      = document.getElementById('lostBtn');
-const searchTrigger= document.getElementById('searchTrigger');
+/* ── DOM ── */
+const $ = id => document.getElementById(id);
+const defaultBar  = $('defaultBar');
+const fullSheet   = $('fullSheet');
+const navBar      = $('navBar');
+const navOverlay  = $('navOverlay');
+const searchInput = $('searchInput');
+const suggestions = $('suggestions');
+const clearBtn    = $('clearBtn');
+const lostBtn     = $('lostBtn');
 
-// =====================
-// STATE MACHINE
-// =====================
-function setState(state) {
-  currentState = state;
-
-  // Hide everything first
+/* ════════════════════════════════
+   STATE MACHINE
+   ════════════════════════════════ */
+function setState(s) {
+  // Reset all
   defaultBar.classList.add('hidden');
   fullSheet.classList.remove('open');
   navBar.classList.add('hidden');
-  navControls.classList.remove('visible');
+  navOverlay.classList.remove('visible');
   lostBtn.classList.add('hidden');
 
-  if (state === 'default') {
+  if (s === 'default') {
     defaultBar.classList.remove('hidden');
     lostBtn.classList.remove('hidden');
   }
-
-  if (state === 'search') {
+  if (s === 'search') {
     fullSheet.classList.add('open');
-    setTimeout(() => searchInput.focus(), 80);
+    setTimeout(() => searchInput.focus(), 60);
   }
-
-  if (state === 'location') {
+  if (s === 'location') {
     navBar.classList.remove('hidden');
     lostBtn.classList.remove('hidden');
   }
-
-  if (state === 'navigating') {
-    navControls.classList.add('visible');
+  if (s === 'navigating') {
+    navOverlay.classList.add('visible');
     lostBtn.classList.remove('hidden');
   }
 }
 
-// =====================
-// INIT MAP
-// =====================
+/* ════════════════════════════════
+   MAP INIT
+   ════════════════════════════════ */
 function initMap() {
   map = L.map('map', {
     center: RSU_CENTER,
     zoom: 16,
     zoomControl: true,
     maxBounds: RSU_BOUNDS,
-    maxBoundsViscosity: 0.8
+    maxBoundsViscosity: 0.85
   });
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
+    attribution: '© OpenStreetMap',
     maxZoom: 19,
     minZoom: 14
   }).addTo(map);
 
   loadLocations();
-  startTracking();
-  handleOffline();
+  trackUser();
+  watchOffline();
 }
 
-// =====================
-// LOAD GEOJSON
-// =====================
+/* ════════════════════════════════
+   LOAD GEOJSON
+   ════════════════════════════════ */
 async function loadLocations() {
   try {
-    const res = await fetch('unimap.geojson');
+    const res  = await fetch('unimap.geojson');
     const data = await res.json();
     allLocations = data.features.filter(f => f.geometry.type === 'Point');
 
@@ -127,84 +115,75 @@ async function loadLocations() {
       const name = feature.properties.Name;
       const desc = feature.properties.description;
 
-      const marker = L.circleMarker([lat, lng], {
-        radius: 8, fillColor: '#2563eb', color: '#ffffff',
-        weight: 2, opacity: 0, fillOpacity: 0
+      const m = L.circleMarker([lat, lng], {
+        radius: 8, fillColor: '#2563EB', color: '#ffffff',
+        weight: 2.5, opacity: 0, fillOpacity: 0
       }).addTo(map);
 
-      marker.bindPopup(`<strong>${name}</strong>${desc ? `<br><span style="color:#6b7fa3;font-size:12px">${desc}</span>` : ''}`);
-      marker.on('click', () => selectLocation(feature));
-      feature._marker = marker;
+      m.bindPopup(
+        `<strong>${name}</strong>` +
+        (desc ? `<br><span style="color:#6B8CAE;font-size:12px">${desc}</span>` : '')
+      );
+      m.on('click', () => selectLocation(feature));
+      feature._marker = m;
     });
 
-    renderPopularChips();
-  } catch (err) {
-    console.error('Failed to load locations:', err);
+    buildChips();
+  } catch (e) {
+    console.error('GeoJSON load failed:', e);
   }
 }
 
-// =====================
-// POPULAR CHIPS
-// =====================
-function renderPopularChips() {
-  const container = document.getElementById('popularChips');
-  container.innerHTML = '';
+/* ════════════════════════════════
+   POPULAR CHIPS
+   ════════════════════════════════ */
+function buildChips() {
+  const wrap = $('popularChips');
+  wrap.innerHTML = '';
   POPULAR_PLACES.forEach((name, i) => {
     const loc = allLocations.find(f => f.properties.Name === name);
     if (!loc) return;
-    const chip = document.createElement('button');
-    chip.className = 'chip';
-    chip.textContent = POPULAR_LABELS[name] || name;
-    chip.style.animationDelay = `${i * 30}ms`;
-    chip.addEventListener('click', () => selectLocation(loc));
-    container.appendChild(chip);
+    const btn = document.createElement('button');
+    btn.className = 'chip';
+    btn.textContent = POPULAR_LABELS[name] || name;
+    btn.style.animationDelay = `${i * 32}ms`;
+    btn.addEventListener('click', () => selectLocation(loc));
+    wrap.appendChild(btn);
   });
 }
 
-// =====================
-// SEARCH INTERACTIONS
-// =====================
-// Open search on tap
-searchTrigger.addEventListener('click', () => setState('search'));
+/* ════════════════════════════════
+   SEARCH
+   ════════════════════════════════ */
+$('searchTrigger').addEventListener('click', () => setState('search'));
 
-// Back button
-backBtn.addEventListener('click', () => {
-  searchInput.value = '';
-  suggestions.innerHTML = '';
-  suggestions.classList.remove('open');
-  clearBtn.classList.remove('visible');
-  document.getElementById('popularSection').style.display = 'block';
+$('backBtn').addEventListener('click', () => {
+  resetSearch();
   setState('default');
 });
 
-// Live search
 searchInput.addEventListener('input', () => {
-  const query = searchInput.value.trim().toLowerCase();
-  const popularSection = document.getElementById('popularSection');
+  const q = searchInput.value.trim().toLowerCase();
+  clearBtn.classList.toggle('visible', q.length > 0);
+  $('popularWrap').style.display = q ? 'none' : 'block';
 
-  clearBtn.classList.toggle('visible', query.length > 0);
+  if (!q) { suggestions.innerHTML = ''; suggestions.classList.remove('open'); return; }
 
-  if (!query) {
-    suggestions.innerHTML = '';
-    suggestions.classList.remove('open');
-    popularSection.style.display = 'block';
-    return;
-  }
-
-  popularSection.style.display = 'none';
-
-  const matches = allLocations.filter(f =>
-    f.properties.Name.toLowerCase().includes(query)
-  );
-
+  const hits = allLocations.filter(f => f.properties.Name.toLowerCase().includes(q));
   suggestions.innerHTML = '';
-  if (!matches.length) { suggestions.classList.remove('open'); return; }
+
+  if (!hits.length) { suggestions.classList.remove('open'); return; }
 
   suggestions.classList.add('open');
-  matches.slice(0, 8).forEach((feature, i) => {
+  hits.slice(0, 8).forEach((feature, i) => {
     const li = document.createElement('li');
-    li.style.animationDelay = `${i * 25}ms`;
-    li.innerHTML = `<span class="sug-icon">📍</span>${feature.properties.Name}`;
+    li.style.animationDelay = `${i * 28}ms`;
+    li.innerHTML = `
+      <div class="sug-dot">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+      </div>
+      <span>${feature.properties.Name}</span>
+    `;
     li.addEventListener('click', () => selectLocation(feature));
     suggestions.appendChild(li);
   });
@@ -212,62 +191,63 @@ searchInput.addEventListener('input', () => {
 
 clearBtn.addEventListener('click', () => {
   searchInput.value = '';
+  clearBtn.classList.remove('visible');
   suggestions.innerHTML = '';
   suggestions.classList.remove('open');
-  clearBtn.classList.remove('visible');
-  document.getElementById('popularSection').style.display = 'block';
+  $('popularWrap').style.display = 'block';
   searchInput.focus();
 });
 
-// =====================
-// MARKER VISIBILITY
-// =====================
+function resetSearch() {
+  searchInput.value = '';
+  clearBtn.classList.remove('visible');
+  suggestions.innerHTML = '';
+  suggestions.classList.remove('open');
+  $('popularWrap').style.display = 'block';
+}
+
+/* ════════════════════════════════
+   MARKERS
+   ════════════════════════════════ */
 function hideAllMarkers() {
-  allLocations.forEach(f => {
-    if (f._marker) f._marker.setStyle({ opacity: 0, fillOpacity: 0 });
-  });
+  allLocations.forEach(f => f._marker?.setStyle({ opacity: 0, fillOpacity: 0 }));
 }
 
 function showMarker(feature) {
   hideAllMarkers();
-  if (feature._marker) feature._marker.setStyle({ opacity: 1, fillOpacity: 0.9 });
+  feature._marker?.setStyle({ opacity: 1, fillOpacity: 0.95 });
 }
 
-// =====================
-// SELECT LOCATION
-// =====================
+/* ════════════════════════════════
+   SELECT LOCATION
+   ════════════════════════════════ */
 function selectLocation(feature) {
-  selectedLocation = feature;
+  selectedLoc = feature;
   const [lng, lat] = feature.geometry.coordinates;
-
   showMarker(feature);
-  map.flyTo([lat, lng], 18, { duration: 1.0, easeLinearity: 0.3 });
-
-  document.getElementById('navLocationName').textContent = feature.properties.Name;
-
+  map.flyTo([lat, lng], 18, { duration: 0.9, easeLinearity: 0.25 });
+  $('destLabel').textContent = feature.properties.Name;
+  resetSearch();
   setState('location');
 }
 
-// =====================
-// NAVIGATE
-// =====================
-document.getElementById('navigateBtn').addEventListener('click', () => {
-  if (!selectedLocation) return;
-  if (!userLocation) { showToast('📍 Still finding your location...'); return; }
-  const [lng, lat] = selectedLocation.geometry.coordinates;
-  startNavigation([lat, lng]);
+/* ════════════════════════════════
+   NAVIGATE
+   ════════════════════════════════ */
+$('navigateBtn').addEventListener('click', () => {
+  if (!selectedLoc) return;
+  if (!userLocation) { toast('📍 Still finding your location…'); return; }
+  const [lng, lat] = selectedLoc.geometry.coordinates;
+  startNav([lat, lng]);
 });
 
-function startNavigation(destination) {
+function startNav(dest) {
   clearRoute();
   isNavigating = true;
   setState('navigating');
 
   routingControl = L.Routing.control({
-    waypoints: [
-      L.latLng(userLocation[0], userLocation[1]),
-      L.latLng(destination[0], destination[1])
-    ],
+    waypoints: [L.latLng(...userLocation), L.latLng(...dest)],
     routeWhileDragging: false,
     addWaypoints: false,
     fitSelectedRoutes: true,
@@ -276,126 +256,123 @@ function startNavigation(destination) {
       serviceUrl: 'https://router.project-osrm.org/route/v1',
       profile: 'foot'
     }),
-    lineOptions: { styles: [{ color: '#2563eb', weight: 5, opacity: 0.9 }] },
+    lineOptions: {
+      styles: [{ color: '#2563EB', weight: 5, opacity: 0.9 }]
+    },
     createMarker: () => null
   }).addTo(map);
 
-  routingControl.on('routesfound', () => checkArrival(destination));
+  routingControl.on('routesfound', () => checkArrival(dest));
 }
 
 function clearRoute() {
   if (routingControl) { map.removeControl(routingControl); routingControl = null; }
 }
 
-// Cancel navigation
-document.getElementById('cancelNavBtn').addEventListener('click', () => {
+$('cancelNavBtn').addEventListener('click', () => {
   clearRoute();
   hideAllMarkers();
   isNavigating = false;
   setState('default');
 });
 
-// =====================
-// ARRIVAL CHECK
-// =====================
-function checkArrival(destination) {
-  if (!isNavigating) return;
-  const interval = setInterval(() => {
-    if (!userLocation || !isNavigating) { clearInterval(interval); return; }
-    if (getDistanceMeters(userLocation, destination) < 20) {
-      clearInterval(interval);
+/* ════════════════════════════════
+   ARRIVAL CHECK
+   ════════════════════════════════ */
+function checkArrival(dest) {
+  const iv = setInterval(() => {
+    if (!userLocation || !isNavigating) { clearInterval(iv); return; }
+    if (dist(userLocation, dest) < 20) {
+      clearInterval(iv);
       isNavigating = false;
-      showToast("🎉 You've arrived at your destination!");
       clearRoute();
       hideAllMarkers();
+      toast("🎉 You've arrived!");
       setState('default');
     }
   }, 3000);
 }
 
-// =====================
-// USER LOCATION
-// =====================
-function startTracking() {
+/* ════════════════════════════════
+   USER LOCATION
+   ════════════════════════════════ */
+function trackUser() {
   if (!navigator.geolocation) return;
   navigator.geolocation.watchPosition(
-    ({ coords: { latitude, longitude } }) => {
-      userLocation = [latitude, longitude];
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      userLocation = [lat, lng];
       if (!userMarker) {
-        userMarker = L.circleMarker([latitude, longitude], {
-          radius: 10, fillColor: '#3b9eff', color: '#ffffff', weight: 3, fillOpacity: 1
+        userMarker = L.circleMarker([lat, lng], {
+          radius: 10, fillColor: '#3B82F6', color: '#fff', weight: 3, fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
-        map.setView([latitude, longitude], 17);
+        map.setView([lat, lng], 17);
       } else {
-        userMarker.setLatLng([latitude, longitude]);
+        userMarker.setLatLng([lat, lng]);
       }
-      // Reroute if off track
       if (isNavigating && routingControl) {
         const wps = routingControl.getWaypoints();
         if (wps.length >= 2) {
-          routingControl.setWaypoints([
-            L.latLng(latitude, longitude),
-            wps[wps.length - 1].latLng
-          ]);
+          routingControl.setWaypoints([L.latLng(lat, lng), wps.at(-1).latLng]);
         }
       }
     },
-    err => console.warn('Location error:', err.message),
+    err => console.warn('Geolocation error:', err.message),
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
   );
 }
 
-// =====================
-// I'M LOST
-// =====================
+/* ════════════════════════════════
+   I'M LOST
+   ════════════════════════════════ */
 lostBtn.addEventListener('click', () => {
-  if (!userLocation) { showToast('📍 Still finding your location...'); return; }
-  let nearest = null, minDist = Infinity;
-  allLocations.forEach(feature => {
-    const [lng, lat] = feature.geometry.coordinates;
-    const dist = getDistanceMeters(userLocation, [lat, lng]);
-    if (dist < minDist) { minDist = dist; nearest = feature; }
+  if (!userLocation) { toast("📍 Still finding your location…"); return; }
+  let nearest = null, minD = Infinity;
+  allLocations.forEach(f => {
+    const [lng, lat] = f.geometry.coordinates;
+    const d = dist(userLocation, [lat, lng]);
+    if (d < minD) { minD = d; nearest = f; }
   });
   if (nearest) {
-    showToast(`📍 Nearest: ${nearest.properties.Name} (${Math.round(minDist)}m)`);
+    toast(`📍 Nearest: ${nearest.properties.Name} (${Math.round(minD)}m)`);
     map.flyTo(userLocation, 17);
-    setTimeout(() => selectLocation(nearest), 2000);
+    setTimeout(() => selectLocation(nearest), 2200);
   }
 });
 
-// =====================
-// TOAST
-// =====================
-function showToast(message) {
-  const toast = document.getElementById('arrivedToast');
-  toast.querySelector('.toast-msg').textContent = message;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3500);
+/* ════════════════════════════════
+   TOAST
+   ════════════════════════════════ */
+let toastTimer;
+function toast(msg) {
+  const el = $('toast');
+  el.querySelector('.toast-msg').textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3400);
 }
 
-// =====================
-// OFFLINE
-// =====================
-function handleOffline() {
-  const banner = document.getElementById('offlineBanner');
-  window.addEventListener('offline', () => banner.classList.add('show'));
-  window.addEventListener('online', () => banner.classList.remove('show'));
-  if (!navigator.onLine) banner.classList.add('show');
+/* ════════════════════════════════
+   OFFLINE
+   ════════════════════════════════ */
+function watchOffline() {
+  const bar = $('offlineBar');
+  window.addEventListener('offline', () => bar.classList.add('show'));
+  window.addEventListener('online',  () => bar.classList.remove('show'));
+  if (!navigator.onLine) bar.classList.add('show');
 }
 
-// =====================
-// DISTANCE HELPER
-// =====================
-function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+/* ════════════════════════════════
+   DISTANCE (Haversine)
+   ════════════════════════════════ */
+function dist([lat1, lon1], [lat2, lon2]) {
+  const R = 6371000, r = Math.PI / 180;
+  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// =====================
-// START
-// =====================
+/* ════════════════════════════════
+   BOOT
+   ════════════════════════════════ */
 initMap();
 setState('default');

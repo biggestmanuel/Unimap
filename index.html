@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>UniMap — Navigate RSU</title>
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="unimap.css" />
 </head>
 <body>
@@ -15,71 +15,75 @@
   <!-- MAP -->
   <div id="map"></div>
 
-  <!-- STATE 1: Default — tiny search bar at base -->
+  <!-- STATE 1: Default bar -->
   <div class="bar default-bar" id="defaultBar">
-    <div class="search-wrapper" id="searchTrigger">
-      <span class="search-icon">🔍</span>
-      <span class="search-placeholder">Where are you headed?</span>
+    <div class="bar-pill"></div>
+    <div class="search-trigger" id="searchTrigger">
+      <div class="trigger-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      </div>
+      <span class="trigger-text">Where are you headed?</span>
     </div>
   </div>
 
-  <!-- STATE 2: Search open — full sheet -->
+  <!-- STATE 2: Full search sheet -->
   <div class="full-sheet" id="fullSheet">
-    <div class="sheet-inner">
-      <div class="search-top">
-        <button class="back-btn" id="backBtn">&#8592;</button>
-        <div class="search-wrapper focused">
-          <span class="search-icon">🔍</span>
-          <input
-            type="text"
-            id="searchInput"
-            class="search-input"
-            placeholder="Where are you headed?"
-            autocomplete="off"
-          />
-          <button class="clear-btn" id="clearBtn">✕</button>
-        </div>
+    <div class="sheet-header">
+      <button class="back-btn" id="backBtn" aria-label="Go back">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <div class="search-field" id="searchField">
+        <svg class="field-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search a location..." autocomplete="off" spellcheck="false" />
+        <button class="clear-btn" id="clearBtn" aria-label="Clear search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
       </div>
+    </div>
 
-      <!-- Suggestions (shown when typing) -->
+    <div class="sheet-body">
+      <!-- Suggestions -->
       <ul class="suggestions" id="suggestions"></ul>
 
-      <!-- Popular Places (shown by default) -->
-      <div class="popular-section" id="popularSection">
-        <p class="popular-label">Popular Places</p>
-        <div class="popular-chips" id="popularChips"></div>
+      <!-- Popular -->
+      <div class="popular-wrap" id="popularWrap">
+        <p class="section-label">Popular Places</p>
+        <div class="chips" id="popularChips"></div>
       </div>
     </div>
   </div>
 
-  <!-- STATE 3: Location selected — navigate bar at base -->
+  <!-- STATE 3: Navigate bar -->
   <div class="bar nav-bar" id="navBar">
-    <div class="nav-bar-inner">
-      <div class="nav-location-name" id="navLocationName"></div>
-      <button class="btn-navigate" id="navigateBtn">Navigate Here</button>
-    </div>
+    <div class="bar-pill"></div>
+    <p class="dest-label" id="destLabel"></p>
+    <button class="btn-navigate" id="navigateBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+      Navigate Here
+    </button>
   </div>
 
-  <!-- STATE 4: Navigating — floating controls -->
-  <div class="nav-controls" id="navControls">
-    <button class="btn-cancel-nav" id="cancelNavBtn">✕ Cancel Navigation</button>
+  <!-- STATE 4: Navigating overlay -->
+  <div class="nav-overlay" id="navOverlay">
+    <button class="btn-cancel-nav" id="cancelNavBtn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      Cancel Navigation
+    </button>
   </div>
 
-  <!-- I'm Lost (visible in states 1, 3, 4) -->
-  <button class="lost-btn" id="lostBtn">
-    <span>😵</span>
-    <span class="lost-text">I'm Lost</span>
+  <!-- I'm Lost (states 1, 3, 4) -->
+  <button class="lost-btn" id="lostBtn" aria-label="I'm lost">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <span>I'm Lost</span>
   </button>
 
   <!-- Toast -->
-  <div class="toast" id="arrivedToast">
-    <span class="toast-msg">You've arrived!</span>
+  <div class="toast" id="toast">
+    <span class="toast-msg"></span>
   </div>
 
-  <!-- Offline Banner -->
-  <div class="offline-banner" id="offlineBanner">
-    📵 You're offline — using cached map
-  </div>
+  <!-- Offline -->
+  <div class="offline-bar" id="offlineBar">📵 No connection — map cached</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
