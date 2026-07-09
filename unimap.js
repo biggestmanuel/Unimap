@@ -280,6 +280,13 @@ function selectLocation(feature) {
 /* ════════════════════════════════
    NAVIGATE
    ════════════════════════════════ */
+$('navBackBtn').addEventListener('click', () => {
+  hideAllMarkers();
+  selectedLoc = null;
+  resetSearch();
+  setState('search');
+});
+
 $('navigateBtn').addEventListener('click', () => {
   if (!selectedLoc) return;
   if (!userLocation) { toast('📍 Still finding your location…'); return; }
