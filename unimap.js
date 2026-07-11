@@ -4,7 +4,7 @@
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
-const ARRIVAL_RADIUS_M = 20;
+const REPORT_EMAIL = 'unimap.rsu@gmail.com'; // TODO: swap for the real inbox this should land in
 
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
@@ -21,7 +21,7 @@ const POPULAR_LABELS = {
   "FACULTY OF ENGINEERING":                    "Engineering",
   "Faculty of Law, Rivers State University":   "Law Faculty",
   "F&G hostel":                                "F&G Hostel",
-  "NDDC Hostel":                               "NDDC Hostel",
+  "NDDC Hostel":                                "NDDC Hostel",
   "Hostel C":                                  "Hostel C",
   "Shopping Complex":                          "Shopping Complex",
   "Love Garden":                               "Love Garden",
@@ -32,18 +32,37 @@ const POPULAR_LABELS = {
   "College of Medical Sciences, RSU":          "Med Sciences"
 };
 
-const DEFAULT_MARKER_STYLE  = { radius: 6, fillColor: '#2563EB', color: '#ffffff', weight: 2, opacity: 0.9, fillOpacity: 0.55 };
-const SELECTED_MARKER_STYLE = { radius: 9, fillColor: '#2563EB', color: '#ffffff', weight: 3, opacity: 1,   fillOpacity: 0.95 };
+/* ── Category config: color + icon per POI type ── */
+const CATEGORIES = {
+  academic:     { label: 'Academic',     color: '#2563EB', icon: '📚' },
+  'lecture-hall': { label: 'Lecture Hall', color: '#4F46E5', icon: '🏛️' },
+  laboratory:   { label: 'Laboratory',   color: '#0D9488', icon: '🧪' },
+  department:   { label: 'Department',   color: '#1D4ED8', icon: '🧑‍🏫' },
+  faculty:      { label: 'Faculty',      color: '#7C3AED', icon: '🏢' },
+  hostel:       { label: 'Hostel',       color: '#F59E0B', icon: '🏠' },
+  sports:       { label: 'Sports',       color: '#10B981', icon: '⚽' },
+  bank:         { label: 'Bank',         color: '#059669', icon: '🏦' },
+  admin:        { label: 'Admin',        color: '#0891B2', icon: '🏢' },
+  church:       { label: 'Church',       color: '#9333EA', icon: '⛪' },
+  medical:      { label: 'Medical',      color: '#EF4444', icon: '⛑️' },
+  library:      { label: 'Library',      color: '#2563EB', icon: '📖' },
+  transit:      { label: 'Transit',      color: '#6B7280', icon: '🚌' },
+  amenity:      { label: 'Amenity',      color: '#D97706', icon: '🛍️' },
+  eatery:       { label: 'Eatery',       color: '#EA580C', icon: '🍽️' },
+  landmark:     { label: 'Landmark',     color: '#DB2777', icon: '📍' },
+  other:        { label: 'Other',        color: '#64748B', icon: '📌' }
+};
+const EVENT_COLOR  = '#DC2626';
+const SAFETY_COLOR = '#EF4444';
 
 /* ── State ── */
 let map, userMarker, userLocation = null;
 let routingControl = null;
 let allLocations   = [];
+let allEvents      = [];
 let selectedLoc    = null;
 let isNavigating   = false;
-let hasCenteredOnUser = false;
-let navDestination = null;
-let activeSuggestionIndex = -1;
+let activeCategory = null; // null = show all
 
 /* ── DOM ── */
 const $ = id => document.getElementById(id);
@@ -51,7 +70,6 @@ const defaultBar  = $('defaultBar');
 const fullSheet   = $('fullSheet');
 const navBar      = $('navBar');
 const navOverlay  = $('navOverlay');
-const navEta      = $('navEta');
 const searchInput = $('searchInput');
 const suggestions = $('suggestions');
 const clearBtn    = $('clearBtn');
@@ -61,7 +79,6 @@ const lostBtn     = $('lostBtn');
    STATE MACHINE
    ════════════════════════════════ */
 function setState(s) {
-  // Reset all
   defaultBar.classList.add('hidden');
   fullSheet.classList.remove('open');
   navBar.classList.add('hidden');
@@ -105,12 +122,13 @@ function initMap() {
   }).addTo(map);
 
   loadLocations();
+  loadEvents();
   trackUser();
   watchOffline();
 }
 
 /* ════════════════════════════════
-   LOAD GEOJSON
+   LOAD GEOJSON (POIs)
    ════════════════════════════════ */
 async function loadLocations() {
   try {
@@ -119,27 +137,162 @@ async function loadLocations() {
     allLocations = data.features.filter(f => f.geometry.type === 'Point');
 
     allLocations.forEach(feature => {
+      const { Name, category, safety } = feature.properties;
+      const cat = CATEGORIES[category] ? category : 'other';
+      const cfg = CATEGORIES[cat];
       const [lng, lat] = feature.geometry.coordinates;
-      const name = feature.properties.Name;
-      const desc = feature.properties.description;
 
-      // Markers are visible (dimly) by default so the map is browsable,
-      // not just reachable through search / chips / "I'm Lost".
-      const m = L.circleMarker([lat, lng], DEFAULT_MARKER_STYLE).addTo(map);
+      const m = L.circleMarker([lat, lng], {
+        radius: safety ? 9 : 7,
+        fillColor: safety ? SAFETY_COLOR : cfg.color,
+        color: '#ffffff',
+        weight: safety ? 3 : 2,
+        opacity: 1,
+        fillOpacity: 0.55,           // dimly visible by default (Phase 1: category-tagged pins)
+        className: safety ? 'pin-safety' : ''
+      }).addTo(map);
 
-      m.bindPopup(
-        `<strong>${name}</strong>` +
-        (desc ? `<br><span style="color:#6B8CAE;font-size:12px">${desc}</span>` : '')
-      );
+      m.bindPopup(() => buildPopupHTML(feature));
       m.on('click', () => selectLocation(feature));
       feature._marker = m;
     });
 
     buildChips();
+    buildCategoryFilters();
   } catch (e) {
     console.error('GeoJSON load failed:', e);
-    toast('⚠️ Could not load campus locations');
   }
+}
+
+/* ════════════════════════════════
+   LOAD EVENTS (Phase 1: event pins)
+   ════════════════════════════════ */
+async function loadEvents() {
+  try {
+    const res  = await fetch('events.json');
+    const data = await res.json();
+    const now  = new Date();
+
+    allEvents = (data.events || []).filter(ev => new Date(ev.end) >= now);
+
+    allEvents.forEach(ev => {
+      const [lng, lat] = ev.coordinates;
+      const icon = L.divIcon({
+        className: 'event-pin',
+        html: `<div class="event-pin-inner">📅</div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      });
+      const m = L.marker([lat, lng], { icon }).addTo(map);
+      m.bindPopup(buildEventPopupHTML(ev));
+      ev._marker = m;
+    });
+  } catch (e) {
+    console.warn('events.json not loaded (optional):', e.message);
+  }
+}
+
+function buildEventPopupHTML(ev) {
+  const start = new Date(ev.start);
+  const dateStr = start.toLocaleDateString('en-NG', { weekday: 'short', month: 'short', day: 'numeric' });
+  const timeStr = start.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
+  return `
+    <strong>📅 ${escapeHTML(ev.title)}</strong><br>
+    <span style="color:#6B8CAE;font-size:12px">${dateStr} · ${timeStr}</span>
+    ${ev.description ? `<p style="margin-top:6px;font-size:13px">${escapeHTML(ev.description)}</p>` : ''}
+  `;
+}
+
+/* ════════════════════════════════
+   POPUP BUILDER (indoor desc, accessibility, safety, report)
+   ════════════════════════════════ */
+function buildPopupHTML(feature) {
+  const { Name, category, indoorDescription, accessibility, safety } = feature.properties;
+  const cfg = CATEGORIES[category] || CATEGORIES.other;
+
+  let html = `<strong>${cfg.icon} ${escapeHTML(Name)}</strong>`;
+  html += `<br><span style="color:${cfg.color};font-size:11.5px;font-weight:600">${cfg.label}${safety ? ' · Safety Point' : ''}</span>`;
+
+  if (indoorDescription) {
+    html += `<p style="margin-top:6px;font-size:12.5px;color:#1E3A5F">${escapeHTML(indoorDescription)}</p>`;
+  }
+
+  if (accessibility && accessibility.length) {
+    const tags = accessibility.map(a => `<span class="a11y-tag">♿ ${escapeHTML(a)}</span>`).join('');
+    html += `<div style="margin-top:8px">${tags}</div>`;
+  }
+
+  html += `<button class="popup-report-btn" onclick="reportIssue('${escapeAttr(Name)}')">⚠️ Report an issue here</button>`;
+  return html;
+}
+
+function escapeHTML(str) {
+  const d = document.createElement('div');
+  d.textContent = str ?? '';
+  return d.innerHTML;
+}
+function escapeAttr(str) {
+  return (str ?? '').replace(/'/g, "\\'");
+}
+
+/* ════════════════════════════════
+   REPORT AN ISSUE (Phase 1 stopgap — no backend yet)
+   ════════════════════════════════ */
+function reportIssue(placeName) {
+  const subject = encodeURIComponent(`UniMap Issue Report: ${placeName || 'General'}`);
+  const bodyLines = [
+    `Location: ${placeName || 'Not specified'}`,
+    userLocation ? `My current coordinates: ${userLocation[0].toFixed(6)}, ${userLocation[1].toFixed(6)}` : '',
+    `Reported at: ${new Date().toLocaleString('en-NG')}`,
+    '',
+    'Describe the issue (wrong pin location, missing pin, broken route, accessibility problem, safety concern, etc.):',
+    ''
+  ].filter(Boolean).join('%0D%0A');
+  window.location.href = `mailto:${REPORT_EMAIL}?subject=${subject}&body=${bodyLines}`;
+}
+window.reportIssue = reportIssue;
+
+/* ════════════════════════════════
+   CATEGORY FILTER CHIPS
+   ════════════════════════════════ */
+function buildCategoryFilters() {
+  const wrap = $('categoryFilters');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const counts = {};
+  allLocations.forEach(f => {
+    const c = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
+    counts[c] = (counts[c] || 0) + 1;
+  });
+
+  Object.entries(CATEGORIES).forEach(([key, cfg]) => {
+    if (!counts[key]) return;
+    const btn = document.createElement('button');
+    btn.className = 'chip cat-chip';
+    btn.style.setProperty('--cat-color', cfg.color);
+    btn.textContent = `${cfg.icon} ${cfg.label}`;
+    btn.dataset.cat = key;
+    btn.addEventListener('click', () => toggleCategory(key, btn));
+    wrap.appendChild(btn);
+  });
+}
+
+function toggleCategory(key, btn) {
+  const isActive = activeCategory === key;
+  document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+
+  activeCategory = isActive ? null : key;
+  if (!isActive) btn.classList.add('active');
+
+  allLocations.forEach(f => {
+    const cat = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
+    const show = !activeCategory || cat === activeCategory;
+    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
+  });
+
+  // Re-filter current search results too
+  searchInput.dispatchEvent(new Event('input'));
 }
 
 /* ════════════════════════════════
@@ -164,9 +317,6 @@ function buildChips() {
    SEARCH
    ════════════════════════════════ */
 $('searchTrigger').addEventListener('click', () => setState('search'));
-$('searchTrigger').addEventListener('keydown', e => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setState('search'); }
-});
 
 $('backBtn').addEventListener('click', () => {
   resetSearch();
@@ -177,60 +327,30 @@ searchInput.addEventListener('input', () => {
   const q = searchInput.value.trim().toLowerCase();
   clearBtn.classList.toggle('visible', q.length > 0);
   $('popularWrap').style.display = q ? 'none' : 'block';
-  activeSuggestionIndex = -1;
 
-  if (!q) { suggestions.innerHTML = ''; suggestions.classList.remove('open'); searchInput.setAttribute('aria-expanded', 'false'); return; }
+  if (!q) { suggestions.innerHTML = ''; suggestions.classList.remove('open'); return; }
 
-  const hits = allLocations.filter(f => f.properties.Name.toLowerCase().includes(q));
+  let hits = allLocations.filter(f => f.properties.Name.toLowerCase().includes(q));
+  if (activeCategory) {
+    hits = hits.filter(f => (CATEGORIES[f.properties.category] ? f.properties.category : 'other') === activeCategory);
+  }
   suggestions.innerHTML = '';
 
-  if (!hits.length) { suggestions.classList.remove('open'); searchInput.setAttribute('aria-expanded', 'false'); return; }
+  if (!hits.length) { suggestions.classList.remove('open'); return; }
 
   suggestions.classList.add('open');
-  searchInput.setAttribute('aria-expanded', 'true');
   hits.slice(0, 8).forEach((feature, i) => {
+    const cfg = CATEGORIES[feature.properties.category] || CATEGORIES.other;
     const li = document.createElement('li');
     li.style.animationDelay = `${i * 28}ms`;
-    li.setAttribute('role', 'option');
-    li.tabIndex = -1;
     li.innerHTML = `
-      <div class="sug-dot">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-      </div>
-      <span>${feature.properties.Name}</span>
+      <div class="sug-dot" style="color:${cfg.color};background:${cfg.color}1A">${cfg.icon}</div>
+      <span>${escapeHTML(feature.properties.Name)}${feature.properties.safety ? ' <span class="safety-badge">safety</span>' : ''}</span>
     `;
     li.addEventListener('click', () => selectLocation(feature));
     suggestions.appendChild(li);
   });
 });
-
-// Keyboard navigation through suggestions (Arrow Up/Down + Enter)
-searchInput.addEventListener('keydown', e => {
-  const items = Array.from(suggestions.querySelectorAll('li'));
-  if (!items.length) return;
-
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    activeSuggestionIndex = Math.min(activeSuggestionIndex + 1, items.length - 1);
-    updateActiveSuggestion(items);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    activeSuggestionIndex = Math.max(activeSuggestionIndex - 1, 0);
-    updateActiveSuggestion(items);
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
-      items[activeSuggestionIndex].click();
-    }
-  } else if (e.key === 'Escape') {
-    resetSearch();
-  }
-});
-
-function updateActiveSuggestion(items) {
-  items.forEach((li, i) => li.classList.toggle('sug-active', i === activeSuggestionIndex));
-  items[activeSuggestionIndex]?.scrollIntoView({ block: 'nearest' });
-}
 
 clearBtn.addEventListener('click', () => {
   searchInput.value = '';
@@ -246,8 +366,6 @@ function resetSearch() {
   clearBtn.classList.remove('visible');
   suggestions.innerHTML = '';
   suggestions.classList.remove('open');
-  searchInput.setAttribute('aria-expanded', 'false');
-  activeSuggestionIndex = -1;
   $('popularWrap').style.display = 'block';
 }
 
@@ -255,13 +373,20 @@ function resetSearch() {
    MARKERS
    ════════════════════════════════ */
 function hideAllMarkers() {
-  allLocations.forEach(f => f._marker?.setStyle(DEFAULT_MARKER_STYLE));
+  allLocations.forEach(f => f._marker?.setStyle({ opacity: 0, fillOpacity: 0 }));
+}
+
+function restoreDefaultMarkers() {
+  allLocations.forEach(f => {
+    const cat = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
+    const show = !activeCategory || cat === activeCategory;
+    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
+  });
 }
 
 function showMarker(feature) {
   hideAllMarkers();
-  feature._marker?.setStyle(SELECTED_MARKER_STYLE);
-  feature._marker?.bringToFront();
+  feature._marker?.setStyle({ opacity: 1, fillOpacity: 0.95 });
 }
 
 /* ════════════════════════════════
@@ -280,13 +405,6 @@ function selectLocation(feature) {
 /* ════════════════════════════════
    NAVIGATE
    ════════════════════════════════ */
-$('navBackBtn').addEventListener('click', () => {
-  hideAllMarkers();
-  selectedLoc = null;
-  resetSearch();
-  setState('search');
-});
-
 $('navigateBtn').addEventListener('click', () => {
   if (!selectedLoc) return;
   if (!userLocation) { toast('📍 Still finding your location…'); return; }
@@ -297,8 +415,6 @@ $('navigateBtn').addEventListener('click', () => {
 function startNav(dest) {
   clearRoute();
   isNavigating = true;
-  navDestination = dest;
-  navEta.textContent = '';
   setState('navigating');
 
   routingControl = L.Routing.control({
@@ -317,50 +433,41 @@ function startNav(dest) {
     createMarker: () => null
   }).addTo(map);
 
-  routingControl.on('routesfound', e => updateEta(e));
+  routingControl.on('routesfound', () => checkArrival(dest));
   routingControl.on('routingerror', () => {
-    toast("⚠️ Couldn't find a walking route — try again");
+    toast('⚠️ Could not find a route. Check your connection.');
+    isNavigating = false;
+    setState('location');
+    clearRoute();
   });
-}
-
-/* Update the live "X m · Y min" readout shown during navigation.
-   routesfound fires again whenever waypoints are recalculated
-   (e.g. as the user's GPS position updates), so this just refreshes
-   the label rather than spawning any new timers/listeners. */
-function updateEta(e) {
-  const route = e?.routes?.[0];
-  if (!route?.summary) return;
-  const meters = route.summary.totalDistance;
-  const mins   = Math.max(1, Math.round(route.summary.totalTime / 60));
-  const distText = meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
-  navEta.textContent = `${distText} · ${mins} min walk`;
 }
 
 function clearRoute() {
   if (routingControl) { map.removeControl(routingControl); routingControl = null; }
-  navDestination = null;
-  navEta.textContent = '';
 }
 
 $('cancelNavBtn').addEventListener('click', () => {
   clearRoute();
-  hideAllMarkers();
+  restoreDefaultMarkers();
   isNavigating = false;
   setState('default');
 });
 
 /* ════════════════════════════════
-   ARRIVAL CHECK
-   ════════════════════════════════
-   Checked directly off each geolocation update in trackUser()
-   rather than via its own setInterval — avoids stacking up
-   duplicate timers every time the route recalculates. */
-function maybeCheckArrival() {
-  if (!isNavigating || !navDestination || !userLocation) return;
-  if (dist(userLocation, navDestination) < ARRIVAL_RADIUS_M) {
+   ARRIVAL CHECK — runs off the GPS watcher, not its own timer
+   ════════════════════════════════ */
+let arrivalDest = null;
+function checkArrival(dest) {
+  arrivalDest = dest;
+}
+
+function evaluateArrival() {
+  if (!arrivalDest || !userLocation || !isNavigating) return;
+  if (dist(userLocation, arrivalDest) < 20) {
+    arrivalDest = null;
     isNavigating = false;
     clearRoute();
-    hideAllMarkers();
+    restoreDefaultMarkers();
     toast("🎉 You've arrived!");
     setState('default');
   }
@@ -370,10 +477,7 @@ function maybeCheckArrival() {
    USER LOCATION
    ════════════════════════════════ */
 function trackUser() {
-  if (!navigator.geolocation) {
-    toast('📍 Geolocation not supported on this device');
-    return;
-  }
+  if (!navigator.geolocation) return;
   navigator.geolocation.watchPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       userLocation = [lat, lng];
@@ -381,37 +485,22 @@ function trackUser() {
         userMarker = L.circleMarker([lat, lng], {
           radius: 10, fillColor: '#3B82F6', color: '#fff', weight: 3, fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
-
-        // Only auto-recenter on the very first fix, and only if the
-        // user is actually within the campus bounds — otherwise this
-        // fights maxBounds and snaps the view somewhere confusing.
-        if (!hasCenteredOnUser) {
-          hasCenteredOnUser = true;
-          if (RSU_BOUNDS.contains([lat, lng])) {
-            map.setView([lat, lng], 17);
-          }
-        }
+        map.setView([lat, lng], 17);
       } else {
         userMarker.setLatLng([lat, lng]);
       }
-
       if (isNavigating && routingControl) {
         const wps = routingControl.getWaypoints();
         if (wps.length >= 2) {
           routingControl.setWaypoints([L.latLng(lat, lng), wps.at(-1).latLng]);
         }
-        // Keep the map following the user while they're walking a route.
-        map.panTo([lat, lng], { animate: true, duration: 0.6 });
       }
-
-      maybeCheckArrival();
+      evaluateArrival();
     },
     err => {
       console.warn('Geolocation error:', err.message);
       if (err.code === err.PERMISSION_DENIED) {
-        toast('📍 Location access denied — enable it in your browser settings to navigate');
-      } else if (err.code === err.TIMEOUT) {
-        toast('📍 Location signal lost — retrying…');
+        toast('📍 Location access denied — enable it in your browser settings to navigate.');
       }
     },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
@@ -423,6 +512,10 @@ function trackUser() {
    ════════════════════════════════ */
 lostBtn.addEventListener('click', () => {
   if (!userLocation) { toast("📍 Still finding your location…"); return; }
+  if (!RSU_BOUNDS.contains(userLocation)) {
+    toast("📍 You appear to be off-campus — can't pinpoint a nearby landmark.");
+    return;
+  }
   let nearest = null, minD = Infinity;
   allLocations.forEach(f => {
     const [lng, lat] = f.geometry.coordinates;

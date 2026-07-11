@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>UniMap — Navigate RSU</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="manifest" href="site.webmanifest" />
-  <meta name="theme-color" content="#2563EB" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
@@ -16,12 +13,12 @@
 <body>
 
   <!-- MAP -->
-  <div id="map" role="application" aria-label="Campus map"></div>
+  <div id="map"></div>
 
   <!-- STATE 1: Default bar -->
   <div class="bar default-bar" id="defaultBar">
     <div class="bar-pill"></div>
-    <div class="search-trigger" id="searchTrigger" role="button" tabindex="0" aria-label="Search for a location">
+    <div class="search-trigger" id="searchTrigger">
       <div class="trigger-icon">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </div>
@@ -37,7 +34,7 @@
       </button>
       <div class="search-field" id="searchField">
         <svg class="field-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="searchInput" class="search-input" placeholder="Search a location..." autocomplete="off" spellcheck="false" aria-label="Search a location" role="combobox" aria-expanded="false" aria-controls="suggestions" />
+        <input type="text" id="searchInput" class="search-input" placeholder="Search a location..." autocomplete="off" spellcheck="false" />
         <button class="clear-btn" id="clearBtn" aria-label="Clear search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
@@ -45,8 +42,14 @@
     </div>
 
     <div class="sheet-body">
+      <!-- Category filters (Phase 1) -->
+      <div class="cat-filters-wrap">
+        <p class="section-label">Filter by Type</p>
+        <div class="chips" id="categoryFilters"></div>
+      </div>
+
       <!-- Suggestions -->
-      <ul class="suggestions" id="suggestions" role="listbox"></ul>
+      <ul class="suggestions" id="suggestions"></ul>
 
       <!-- Popular -->
       <div class="popular-wrap" id="popularWrap">
@@ -59,12 +62,7 @@
   <!-- STATE 3: Navigate bar -->
   <div class="bar nav-bar" id="navBar">
     <div class="bar-pill"></div>
-    <div class="nav-bar-header">
-      <button class="nav-back-btn" id="navBackBtn" aria-label="Choose a different location">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      </button>
-      <p class="dest-label" id="destLabel"></p>
-    </div>
+    <p class="dest-label" id="destLabel"></p>
     <button class="btn-navigate" id="navigateBtn">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
       Navigate Here
@@ -73,7 +71,6 @@
 
   <!-- STATE 4: Navigating overlay -->
   <div class="nav-overlay" id="navOverlay">
-    <p class="nav-eta" id="navEta"></p>
     <button class="btn-cancel-nav" id="cancelNavBtn">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       Cancel Navigation
@@ -81,18 +78,18 @@
   </div>
 
   <!-- I'm Lost (states 1, 3, 4) -->
-  <button class="lost-btn" id="lostBtn" aria-label="I'm lost — find nearest place">
+  <button class="lost-btn" id="lostBtn" aria-label="I'm lost">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
     <span>I'm Lost</span>
   </button>
 
   <!-- Toast -->
-  <div class="toast" id="toast" role="status" aria-live="polite">
+  <div class="toast" id="toast">
     <span class="toast-msg"></span>
   </div>
 
   <!-- Offline -->
-  <div class="offline-bar" id="offlineBar">📵 No connection — some map tiles may not load</div>
+  <div class="offline-bar" id="offlineBar">📵 No connection — map cached</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>

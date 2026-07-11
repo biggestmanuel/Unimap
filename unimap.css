@@ -15,14 +15,6 @@
   --ink-muted:   #6B8CAE;
   --red:         #EF4444;
 
-  /* Glass (iOS-style frosted surfaces — only applied where supported, see @supports below) */
-  --glass-bar:      rgba(255, 255, 255, 0.72);
-  --glass-field:    rgba(255, 255, 255, 0.55);
-  --glass-field-hi: rgba(255, 255, 255, 0.82);
-  --glass-border:   rgba(255, 255, 255, 0.55);
-  --glass-blur:     blur(24px) saturate(180%);
-  --glass-blur-sm:  blur(16px) saturate(180%);
-
   /* Motion */
   --ease:        cubic-bezier(0.4, 0, 0.2, 1);
   --spring:      cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -48,27 +40,6 @@ input  { font-family: var(--body); border: none; outline: none; }
 /* ───── Map ───── */
 #map { position: fixed; inset: 0; z-index: 1; }
 
-/* ═══════════════════════════════════════════════
-   GLASS STRATEGY
-   Every "glass" surface below ships a solid,
-   fully-opaque baseline first — that's what phones
-   without backdrop-filter support (older Android
-   WebViews, older browsers) get, and it's a
-   complete, good-looking UI on its own.
-   The blur/translucency is layered on top only
-   inside @supports, so capable devices get the
-   frosted look and everyone else just gets clean
-   flat panels — no broken or half-rendered states.
-   Only two elements own an actual blur pass per
-   screen (.bar and .sheet-header); everything
-   glassy nested inside them (search pill, back
-   button, search field) just gets a translucent
-   tint with no blur of its own, since the parent
-   is already blurred behind it. Stacking multiple
-   independent blurs costs real GPU time on cheap
-   devices for a difference nobody can see.
-   ═══════════════════════════════════════════════ */
-
 /* ───── Shared Bar ───── */
 .bar {
   position: fixed;
@@ -76,9 +47,8 @@ input  { font-family: var(--body); border: none; outline: none; }
   z-index: 200;
   background: var(--white);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
-  border-top: 1px solid var(--border);
-  padding: 0 20px calc(36px + env(safe-area-inset-bottom, 0px));
-  box-shadow: 0 -8px 40px rgba(30, 58, 95, 0.12), 0 0 0 1px rgba(255,255,255,0.4) inset;
+  padding: 0 20px 36px;
+  box-shadow: 0 -2px 40px rgba(37, 99, 235, 0.10), 0 -1px 0 var(--border);
   will-change: transform, opacity;
   transition: transform 0.45s var(--spring), opacity 0.3s var(--ease);
 }
@@ -87,7 +57,7 @@ input  { font-family: var(--body); border: none; outline: none; }
 
 .bar-pill {
   width: 40px; height: 4px;
-  background: rgba(107, 140, 174, 0.35);
+  background: var(--border);
   border-radius: 2px;
   margin: 14px auto 20px;
   transition: width 0.3s var(--spring);
@@ -115,12 +85,6 @@ input  { font-family: var(--body); border: none; outline: none; }
 }
 
 .search-trigger:active { transform: scale(0.98); }
-
-.search-trigger:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 4px rgba(37,99,235,0.25);
-  border-color: var(--blue);
-}
 
 .trigger-icon {
   width: 36px; height: 36px;
@@ -165,8 +129,7 @@ input  { font-family: var(--body); border: none; outline: none; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: calc(56px + env(safe-area-inset-top, 0px)) 16px 16px;
-  background: var(--white);
+  padding: 56px 16px 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -191,7 +154,7 @@ input  { font-family: var(--body); border: none; outline: none; }
   gap: 10px;
   background: var(--soft);
   border: 1.5px solid var(--border);
-  border-radius: 100px;
+  border-radius: var(--r-md);
   padding: 0 14px;
   height: 48px;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
@@ -263,8 +226,7 @@ input  { font-family: var(--body); border: none; outline: none; }
 }
 
 .suggestions li:last-child { border-bottom: none; }
-.suggestions li:hover,
-.suggestions li.sug-active { background: var(--blue-pale); padding-left: 16px; }
+.suggestions li:hover { background: var(--blue-pale); padding-left: 16px; }
 .suggestions li:active { background: var(--border); }
 
 .sug-dot {
@@ -274,7 +236,21 @@ input  { font-family: var(--body); border: none; outline: none; }
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   color: var(--blue);
-  font-size: 13px;
+  font-size: 15px;
+}
+
+.safety-badge {
+  display: inline-block;
+  background: rgba(239,68,68,0.12);
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 100px;
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 /* Popular section */
@@ -319,33 +295,32 @@ input  { font-family: var(--body); border: none; outline: none; }
 
 .chip:active { transform: scale(0.96); }
 
+/* Category filter chips (Phase 1) */
+.cat-filters-wrap { margin-bottom: 4px; }
+
+.cat-chip {
+  border-color: var(--border);
+}
+
+.cat-chip:hover {
+  background: var(--cat-color, var(--blue));
+  border-color: var(--cat-color, var(--blue));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--cat-color, var(--blue)) 35%, transparent);
+}
+
+.cat-chip.active {
+  background: var(--cat-color, var(--blue));
+  border-color: var(--cat-color, var(--blue));
+  color: var(--white);
+}
+
 /* ───── State 3: Navigate bar ───── */
-.nav-bar-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.nav-back-btn {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  background: var(--soft);
-  border: 1.5px solid var(--border);
-  color: var(--ink);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.22s var(--spring);
-}
-
-.nav-back-btn:hover { background: var(--blue-pale); border-color: var(--blue-light); transform: scale(1.08) translateX(-1px); }
-.nav-back-btn:active { transform: scale(0.93); }
-
 .dest-label {
   font-family: var(--display);
   font-size: 16px;
   font-weight: 600;
   color: var(--ink);
+  margin-bottom: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -391,10 +366,6 @@ input  { font-family: var(--body); border: none; outline: none; }
   bottom: 36px;
   left: 50%;
   z-index: 200;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
   transform: translateX(-50%) translateY(28px);
   opacity: 0;
   pointer-events: none;
@@ -407,27 +378,11 @@ input  { font-family: var(--body); border: none; outline: none; }
   pointer-events: all;
 }
 
-.nav-eta {
-  background: rgba(255,255,255,0.98);
-  color: var(--ink);
-  border: 1.5px solid var(--border);
-  border-radius: 100px;
-  padding: 9px 20px;
-  font-family: var(--display);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.12);
-  min-height: 1px;
-}
-
-.nav-eta:empty { display: none; }
-
 .btn-cancel-nav {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.98);
+  background: rgba(255,255,255,0.94);
   color: var(--ink);
   border: 1.5px solid var(--border);
   border-radius: 100px;
@@ -436,8 +391,17 @@ input  { font-family: var(--body); border: none; outline: none; }
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   box-shadow: 0 8px 32px rgba(0,0,0,0.14), 0 0 0 1px rgba(255,255,255,0.6) inset;
   transition: all 0.22s var(--spring);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .btn-cancel-nav { background: rgba(255,255,255,0.98); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .btn-cancel-nav { background: rgba(255,255,255,0.99); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 .btn-cancel-nav:hover {
@@ -459,7 +423,7 @@ input  { font-family: var(--body); border: none; outline: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.96);
+  background: rgba(255,255,255,0.92);
   color: var(--blue);
   border: 1.5px solid var(--border);
   border-radius: 100px;
@@ -468,8 +432,17 @@ input  { font-family: var(--body); border: none; outline: none; }
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   box-shadow: 0 4px 20px rgba(37,99,235,0.18);
   transition: transform 0.3s var(--spring), box-shadow 0.25s, opacity 0.3s var(--ease), color 0.2s, background 0.2s;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .lost-btn { background: rgba(255,255,255,0.98); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .lost-btn { background: rgba(255,255,255,0.99); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 .lost-btn:hover {
@@ -583,88 +556,63 @@ input  { font-family: var(--body); border: none; outline: none; }
   font-weight: 700 !important;
 }
 
-/* ═══════════════════════════════════════════════
-   GLASS ENHANCEMENT LAYER
-   Everything above is the complete, solid baseline
-   UI. This block ADDS translucency + blur only for
-   devices that can actually composite it cheaply.
-   Two things gate it:
-   1. @supports — real capability check. Browsers
-      without backdrop-filter (old Android WebView,
-      old Firefox, old Samsung Internet) simply never
-      see this block and keep the solid look above.
-   2. prefers-reduced-transparency — a real OS-level
-      setting iOS/macOS/Windows expose (Settings →
-      Accessibility → Reduce Transparency), which
-      people on older/slower hardware commonly enable
-      specifically to cut this kind of rendering cost.
-      We respect it by re-declaring the solid values.
-   ═══════════════════════════════════════════════ */
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .bar {
-    background: var(--glass-bar);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border-top-color: var(--glass-border);
-  }
-
-  .search-trigger {
-    /* No blur of its own — .bar above already blurs the map behind it,
-       this just needs a lighter tint layered on top. */
-    background: var(--glass-field);
-    border-color: var(--glass-border);
-  }
-
-  .search-trigger:hover {
-    background: var(--glass-field-hi);
-    border-color: rgba(255,255,255,0.85);
-  }
-
-  .sheet-header {
-    background: var(--glass-bar);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border-bottom-color: var(--glass-border);
-  }
-
-  .back-btn,
-  .search-field {
-    background: var(--glass-field);
-    border-color: var(--glass-border);
-  }
-
-  .search-field:focus-within {
-    background: var(--glass-field-hi);
-    border-color: rgba(37,99,235,0.45);
-  }
-
-  .back-btn:hover { background: var(--glass-field-hi); border-color: rgba(255,255,255,0.85); }
-
-  .nav-eta,
-  .btn-cancel-nav,
-  .lost-btn {
-    background: rgba(255,255,255,0.82);
-    backdrop-filter: var(--glass-blur-sm);
-    -webkit-backdrop-filter: var(--glass-blur-sm);
-  }
-
-  .lost-btn:hover { background: var(--blue); }
-  .btn-cancel-nav:hover { background: rgba(254,242,242,0.88); }
-
-  @media (prefers-reduced-transparency: reduce) {
-    .bar,
-    .sheet-header { background: var(--white) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-    .search-trigger,
-    .search-trigger:hover,
-    .back-btn,
-    .back-btn:hover,
-    .search-field,
-    .search-field:focus-within { background: var(--soft) !important; border-color: var(--border) !important; }
-    .nav-eta,
-    .btn-cancel-nav,
-    .lost-btn { background: rgba(255,255,255,0.98) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-  }
+/* ───── Phase 1: Popup extras ───── */
+.a11y-tag {
+  display: inline-block;
+  background: var(--blue-pale);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 100px;
+  margin: 0 4px 4px 0;
 }
+
+.popup-report-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: var(--body);
+  text-align: center;
+  transition: all 0.18s var(--ease);
+}
+
+.popup-report-btn:hover {
+  background: #FEF2F2;
+  border-color: #FECACA;
+  color: var(--red);
+}
+
+/* ───── Phase 1: Event pins ───── */
+.event-pin { background: none; border: none; }
+.event-pin-inner {
+  width: 30px; height: 30px;
+  background: var(--white);
+  border: 2.5px solid #DC2626;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 10px rgba(220,38,38,0.35);
+  font-size: 14px;
+}
+
+/* ───── Phase 1: Safety pin pulse ───── */
+.pin-safety {
+  animation: safetyPulse 2.2s ease-in-out infinite;
+}
+@keyframes safetyPulse {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(239,68,68,0.5)); }
+  50%      { filter: drop-shadow(0 0 6px rgba(239,68,68,0.7)); }
+}
+
+/* ───── Scrollbar ───── */
+.sheet-body::-webkit-scrollbar { width: 0; }
 
 /* ───── Motion: reduced ───── */
 @media (prefers-reduced-motion: reduce) {
@@ -675,5 +623,5 @@ input  { font-family: var(--body); border: none; outline: none; }
 @media (max-width: 480px) {
   .lost-btn span { display: none; }
   .lost-btn { padding: 12px; border-radius: 50%; width: 46px; height: 46px; justify-content: center; }
-  .sheet-header { padding-top: calc(48px + env(safe-area-inset-top, 0px)); }
+  .sheet-header { padding-top: 48px; }
 }
