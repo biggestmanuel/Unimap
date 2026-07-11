@@ -291,8 +291,8 @@ function toggleCategory(key, btn) {
     f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
   });
 
-  // Re-filter current search results too
-  searchInput.dispatchEvent(new Event('input'));
+  // Show/refresh the suggestion list for the new filter state
+  renderSuggestions();
 }
 
 /* ════════════════════════════════
@@ -323,26 +323,40 @@ $('backBtn').addEventListener('click', () => {
   setState('default');
 });
 
-searchInput.addEventListener('input', () => {
+searchInput.addEventListener('input', () => renderSuggestions());
+
+function renderSuggestions() {
   const q = searchInput.value.trim().toLowerCase();
   clearBtn.classList.toggle('visible', q.length > 0);
-  $('popularWrap').style.display = q ? 'none' : 'block';
 
-  if (!q) { suggestions.innerHTML = ''; suggestions.classList.remove('open'); return; }
+  // Popular places only make sense with no active filter and no query
+  $('popularWrap').style.display = (q || activeCategory) ? 'none' : 'block';
 
-  let hits = allLocations.filter(f => f.properties.Name.toLowerCase().includes(q));
+  let hits = allLocations;
   if (activeCategory) {
     hits = hits.filter(f => (CATEGORIES[f.properties.category] ? f.properties.category : 'other') === activeCategory);
   }
+  if (q) {
+    hits = hits.filter(f => f.properties.Name.toLowerCase().includes(q));
+  }
+
   suggestions.innerHTML = '';
 
-  if (!hits.length) { suggestions.classList.remove('open'); return; }
+  // Nothing to show: no query and no category selected
+  if (!q && !activeCategory) { suggestions.classList.remove('open'); return; }
+
+  if (!hits.length) {
+    suggestions.classList.add('open');
+    suggestions.innerHTML = `<li class="no-results">No matches${activeCategory ? ` in ${CATEGORIES[activeCategory].label}` : ''}</li>`;
+    return;
+  }
 
   suggestions.classList.add('open');
-  hits.slice(0, 8).forEach((feature, i) => {
+  const limit = q ? 8 : hits.length; // full category list when browsing, capped when searching
+  hits.slice(0, limit).forEach((feature, i) => {
     const cfg = CATEGORIES[feature.properties.category] || CATEGORIES.other;
     const li = document.createElement('li');
-    li.style.animationDelay = `${i * 28}ms`;
+    li.style.animationDelay = `${Math.min(i, 12) * 28}ms`;
     li.innerHTML = `
       <div class="sug-dot" style="color:${cfg.color};background:${cfg.color}1A">${cfg.icon}</div>
       <span>${escapeHTML(feature.properties.Name)}${feature.properties.safety ? ' <span class="safety-badge">safety</span>' : ''}</span>
@@ -350,15 +364,12 @@ searchInput.addEventListener('input', () => {
     li.addEventListener('click', () => selectLocation(feature));
     suggestions.appendChild(li);
   });
-});
+}
 
 clearBtn.addEventListener('click', () => {
   searchInput.value = '';
-  clearBtn.classList.remove('visible');
-  suggestions.innerHTML = '';
-  suggestions.classList.remove('open');
-  $('popularWrap').style.display = 'block';
   searchInput.focus();
+  renderSuggestions();
 });
 
 function resetSearch() {

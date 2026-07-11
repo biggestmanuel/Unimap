@@ -229,6 +229,14 @@ input  { font-family: var(--body); border: none; outline: none; }
 .suggestions li:hover { background: var(--blue-pale); padding-left: 16px; }
 .suggestions li:active { background: var(--border); }
 
+.suggestions li.no-results {
+  cursor: default;
+  color: var(--ink-muted);
+  justify-content: center;
+  font-size: 13px;
+}
+.suggestions li.no-results:hover { background: transparent; padding-left: 10px; }
+
 .sug-dot {
   width: 32px; height: 32px;
   border-radius: 50%;
