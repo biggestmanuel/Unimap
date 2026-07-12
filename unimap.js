@@ -329,6 +329,7 @@ $('searchTrigger').addEventListener('click', () => setState('search'));
 
 $('backBtn').addEventListener('click', () => {
   resetSearch();
+  resetCategoryFilter();
   setState('default');
 });
 
