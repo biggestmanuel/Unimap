@@ -269,7 +269,7 @@ function buildCategoryFilters() {
   Object.entries(CATEGORIES).forEach(([key, cfg]) => {
     if (!counts[key]) return;
     const btn = document.createElement('button');
-    btn.className = 'chip cat-chip';
+    btn.className = 'chip cat-chip' + (activeCategory === key ? ' active' : '');
     btn.style.setProperty('--cat-color', cfg.color);
     btn.textContent = `${cfg.icon} ${cfg.label}`;
     btn.dataset.cat = key;
@@ -293,6 +293,15 @@ function toggleCategory(key, btn) {
 
   // Show/refresh the suggestion list for the new filter state
   renderSuggestions();
+}
+
+/* Clears the active category filter — called once a navigation session
+   wraps up (arrival or cancel), so the next search starts unfiltered
+   rather than silently staying scoped to whatever was picked before. */
+function resetCategoryFilter() {
+  activeCategory = null;
+  document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+  restoreDefaultMarkers();
 }
 
 /* ════════════════════════════════
@@ -413,6 +422,12 @@ function selectLocation(feature) {
   setState('location');
 }
 
+$('navBackBtn').addEventListener('click', () => {
+  selectedLoc = null;
+  restoreDefaultMarkers(); // respects the active category filter, if any
+  setState('default');
+});
+
 /* ════════════════════════════════
    NAVIGATE
    ════════════════════════════════ */
@@ -459,7 +474,7 @@ function clearRoute() {
 
 $('cancelNavBtn').addEventListener('click', () => {
   clearRoute();
-  restoreDefaultMarkers();
+  resetCategoryFilter();
   isNavigating = false;
   setState('default');
 });
@@ -478,7 +493,7 @@ function evaluateArrival() {
     arrivalDest = null;
     isNavigating = false;
     clearRoute();
-    restoreDefaultMarkers();
+    resetCategoryFilter();
     toast("🎉 You've arrived!");
     setState('default');
   }
@@ -573,7 +588,42 @@ function dist([lat1, lon1], [lat2, lon2]) {
 }
 
 /* ════════════════════════════════
+   THEME (system / light / dark)
+   ════════════════════════════════ */
+const THEME_KEY   = 'unimap-theme-pref';
+const THEME_ORDER = ['system', 'light', 'dark'];
+const THEME_ICONS = { system: '🖥️', light: '☀️', dark: '🌙' };
+const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+function resolveTheme(pref) {
+  return pref === 'system' ? (darkMediaQuery.matches ? 'dark' : 'light') : pref;
+}
+
+function applyTheme(pref) {
+  document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+  const iconEl = $('themeIcon');
+  if (iconEl) iconEl.textContent = THEME_ICONS[pref];
+}
+
+function initTheme() {
+  const pref = localStorage.getItem(THEME_KEY) || 'system';
+  applyTheme(pref);
+  darkMediaQuery.addEventListener('change', () => {
+    if ((localStorage.getItem(THEME_KEY) || 'system') === 'system') applyTheme('system');
+  });
+}
+
+$('themeToggleBtn')?.addEventListener('click', () => {
+  const current = localStorage.getItem(THEME_KEY) || 'system';
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length];
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+  toast(`Theme: ${next[0].toUpperCase()}${next.slice(1)}`);
+});
+
+/* ════════════════════════════════
    BOOT
    ════════════════════════════════ */
+initTheme();
 initMap();
 setState('default');
