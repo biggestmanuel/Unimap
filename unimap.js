@@ -1,10 +1,10 @@
 /* ================================================
-   UNIMAP — Main Script
+   UNIMAP — Modern Script (Redesign)
    ================================================ */
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
-const REPORT_EMAIL = 'unimap.rsu@gmail.com'; // TODO: swap for the real inbox this should land in
+const REPORT_EMAIL = 'unimap.rsu@gmail.com';
 
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
@@ -62,18 +62,18 @@ let allLocations   = [];
 let allEvents      = [];
 let selectedLoc    = null;
 let isNavigating   = false;
-let activeCategory = null; // null = show all
+let activeCategory = null;
 
 /* ── DOM ── */
 const $ = id => document.getElementById(id);
-const defaultBar  = $('defaultBar');
-const fullSheet   = $('fullSheet');
-const navBar      = $('navBar');
-const navOverlay  = $('navOverlay');
-const searchInput = $('searchInput');
-const suggestions = $('suggestions');
-const clearBtn    = $('clearBtn');
-const lostBtn     = $('lostBtn');
+const defaultBar   = $('defaultBar');
+const fullSheet    = $('fullSheet');
+const navBar       = $('navBar');
+const navOverlay   = $('navOverlay');
+const searchInput  = $('searchInput');
+const suggestions  = $('suggestions');
+const clearBtn     = $('clearBtn');
+const lostBtn      = $('lostBtn');
 
 /* ════════════════════════════════
    STATE MACHINE
@@ -148,7 +148,7 @@ async function loadLocations() {
         color: '#ffffff',
         weight: safety ? 3 : 2,
         opacity: 1,
-        fillOpacity: 0.55,           // dimly visible by default (Phase 1: category-tagged pins)
+        fillOpacity: 0.5,
         className: safety ? 'pin-safety' : ''
       }).addTo(map);
 
@@ -165,7 +165,7 @@ async function loadLocations() {
 }
 
 /* ════════════════════════════════
-   LOAD EVENTS (Phase 1: event pins)
+   LOAD EVENTS
    ════════════════════════════════ */
 async function loadEvents() {
   try {
@@ -198,23 +198,23 @@ function buildEventPopupHTML(ev) {
   const timeStr = start.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
   return `
     <strong>📅 ${escapeHTML(ev.title)}</strong><br>
-    <span style="color:#6B8CAE;font-size:12px">${dateStr} · ${timeStr}</span>
+    <span style="color:#6B6B6F;font-size:12px">${dateStr} · ${timeStr}</span>
     ${ev.description ? `<p style="margin-top:6px;font-size:13px">${escapeHTML(ev.description)}</p>` : ''}
   `;
 }
 
 /* ════════════════════════════════
-   POPUP BUILDER (indoor desc, accessibility, safety, report)
+   POPUP BUILDER
    ════════════════════════════════ */
 function buildPopupHTML(feature) {
   const { Name, category, indoorDescription, accessibility, safety } = feature.properties;
   const cfg = CATEGORIES[category] || CATEGORIES.other;
 
   let html = `<strong>${cfg.icon} ${escapeHTML(Name)}</strong>`;
-  html += `<br><span style="color:${cfg.color};font-size:11.5px;font-weight:600">${cfg.label}${safety ? ' · Safety Point' : ''}</span>`;
+  html += `<br><span style="color:${cfg.color};font-size:11px;font-weight:600">${cfg.label}${safety ? ' · Safety Point' : ''}</span>`;
 
   if (indoorDescription) {
-    html += `<p style="margin-top:6px;font-size:12.5px;color:#1E3A5F">${escapeHTML(indoorDescription)}</p>`;
+    html += `<p style="margin-top:6px;font-size:12px;color:#1D1D1F">${escapeHTML(indoorDescription)}</p>`;
   }
 
   if (accessibility && accessibility.length) {
@@ -222,7 +222,7 @@ function buildPopupHTML(feature) {
     html += `<div style="margin-top:8px">${tags}</div>`;
   }
 
-  html += `<button class="popup-report-btn" onclick="reportIssue('${escapeAttr(Name)}')">⚠️ Report an issue here</button>`;
+  html += `<button class="popup-report-btn" onclick="reportIssue('${escapeAttr(Name)}')">⚠️ Report issue</button>`;
   return html;
 }
 
@@ -231,12 +231,13 @@ function escapeHTML(str) {
   d.textContent = str ?? '';
   return d.innerHTML;
 }
+
 function escapeAttr(str) {
   return (str ?? '').replace(/'/g, "\\'");
 }
 
 /* ════════════════════════════════
-   REPORT AN ISSUE (Phase 1 stopgap — no backend yet)
+   REPORT AN ISSUE
    ════════════════════════════════ */
 function reportIssue(placeName) {
   const subject = encodeURIComponent(`UniMap Issue Report: ${placeName || 'General'}`);
@@ -245,7 +246,7 @@ function reportIssue(placeName) {
     userLocation ? `My current coordinates: ${userLocation[0].toFixed(6)}, ${userLocation[1].toFixed(6)}` : '',
     `Reported at: ${new Date().toLocaleString('en-NG')}`,
     '',
-    'Describe the issue (wrong pin location, missing pin, broken route, accessibility problem, safety concern, etc.):',
+    'Describe the issue (wrong pin, missing location, broken route, accessibility, safety concern, etc.):',
     ''
   ].filter(Boolean).join('%0D%0A');
   window.location.href = `mailto:${REPORT_EMAIL}?subject=${subject}&body=${bodyLines}`;
@@ -288,16 +289,12 @@ function toggleCategory(key, btn) {
   allLocations.forEach(f => {
     const cat = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
     const show = !activeCategory || cat === activeCategory;
-    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
+    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.5 : 0 });
   });
 
-  // Show/refresh the suggestion list for the new filter state
   renderSuggestions();
 }
 
-/* Clears the active category filter — called once a navigation session
-   wraps up (arrival or cancel), so the next search starts unfiltered
-   rather than silently staying scoped to whatever was picked before. */
 function resetCategoryFilter() {
   activeCategory = null;
   document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
@@ -316,7 +313,7 @@ function buildChips() {
     const btn = document.createElement('button');
     btn.className = 'chip';
     btn.textContent = POPULAR_LABELS[name] || name;
-    btn.style.animationDelay = `${i * 32}ms`;
+    btn.style.animationDelay = `${i * 30}ms`;
     btn.addEventListener('click', () => selectLocation(loc));
     wrap.appendChild(btn);
   });
@@ -339,7 +336,6 @@ function renderSuggestions() {
   const q = searchInput.value.trim().toLowerCase();
   clearBtn.classList.toggle('visible', q.length > 0);
 
-  // Popular places only make sense with no active filter and no query
   $('popularWrap').style.display = (q || activeCategory) ? 'none' : 'block';
 
   let hits = allLocations;
@@ -352,8 +348,10 @@ function renderSuggestions() {
 
   suggestions.innerHTML = '';
 
-  // Nothing to show: no query and no category selected
-  if (!q && !activeCategory) { suggestions.classList.remove('open'); return; }
+  if (!q && !activeCategory) {
+    suggestions.classList.remove('open');
+    return;
+  }
 
   if (!hits.length) {
     suggestions.classList.add('open');
@@ -362,11 +360,11 @@ function renderSuggestions() {
   }
 
   suggestions.classList.add('open');
-  const limit = q ? 8 : hits.length; // full category list when browsing, capped when searching
+  const limit = q ? 8 : hits.length;
   hits.slice(0, limit).forEach((feature, i) => {
     const cfg = CATEGORIES[feature.properties.category] || CATEGORIES.other;
     const li = document.createElement('li');
-    li.style.animationDelay = `${Math.min(i, 12) * 28}ms`;
+    li.style.animationDelay = `${Math.min(i, 12) * 25}ms`;
     li.innerHTML = `
       <div class="sug-dot" style="color:${cfg.color};background:${cfg.color}1A">${cfg.icon}</div>
       <span>${escapeHTML(feature.properties.Name)}${feature.properties.safety ? ' <span class="safety-badge">safety</span>' : ''}</span>
@@ -401,7 +399,7 @@ function restoreDefaultMarkers() {
   allLocations.forEach(f => {
     const cat = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
     const show = !activeCategory || cat === activeCategory;
-    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
+    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.5 : 0 });
   });
 }
 
@@ -418,14 +416,18 @@ function selectLocation(feature) {
   const [lng, lat] = feature.geometry.coordinates;
   showMarker(feature);
   map.flyTo([lat, lng], 18, { duration: 0.9, easeLinearity: 0.25 });
+  
+  const cfg = CATEGORIES[feature.properties.category] || CATEGORIES.other;
   $('destLabel').textContent = feature.properties.Name;
+  $('destCategory').textContent = cfg.label;
+  
   resetSearch();
   setState('location');
 }
 
 $('navBackBtn').addEventListener('click', () => {
   selectedLoc = null;
-  restoreDefaultMarkers(); // respects the active category filter, if any
+  restoreDefaultMarkers();
   setState('default');
 });
 
@@ -434,7 +436,10 @@ $('navBackBtn').addEventListener('click', () => {
    ════════════════════════════════ */
 $('navigateBtn').addEventListener('click', () => {
   if (!selectedLoc) return;
-  if (!userLocation) { toast('📍 Still finding your location…'); return; }
+  if (!userLocation) {
+    toast('📍 Still finding your location…');
+    return;
+  }
   const [lng, lat] = selectedLoc.geometry.coordinates;
   startNav([lat, lng]);
 });
@@ -455,12 +460,15 @@ function startNav(dest) {
       profile: 'foot'
     }),
     lineOptions: {
-      styles: [{ color: '#2563EB', weight: 5, opacity: 0.9 }]
+      styles: [{ color: '#FF6B3D', weight: 5, opacity: 0.85 }]
     },
     createMarker: () => null
   }).addTo(map);
 
-  routingControl.on('routesfound', () => checkArrival(dest));
+  routingControl.on('routesfound', (e) => {
+    updateNavInfo(e.routes[0]);
+    checkArrival(dest);
+  });
   routingControl.on('routingerror', () => {
     toast('⚠️ Could not find a route. Check your connection.');
     isNavigating = false;
@@ -469,8 +477,19 @@ function startNav(dest) {
   });
 }
 
+function updateNavInfo(route) {
+  const distance = Math.round(route.summary.totalDistance);
+  const time = Math.round(route.summary.totalTime / 60);
+  
+  $('navDistance').textContent = `${distance > 1000 ? (distance/1000).toFixed(1) : distance}${distance > 1000 ? 'km' : 'm'}`;
+  $('navTime').textContent = `${time} min`;
+}
+
 function clearRoute() {
-  if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+  if (routingControl) {
+    map.removeControl(routingControl);
+    routingControl = null;
+  }
 }
 
 $('cancelNavBtn').addEventListener('click', () => {
@@ -481,7 +500,7 @@ $('cancelNavBtn').addEventListener('click', () => {
 });
 
 /* ════════════════════════════════
-   ARRIVAL CHECK — runs off the GPS watcher, not its own timer
+   ARRIVAL CHECK
    ════════════════════════════════ */
 let arrivalDest = null;
 function checkArrival(dest) {
@@ -510,7 +529,11 @@ function trackUser() {
       userLocation = [lat, lng];
       if (!userMarker) {
         userMarker = L.circleMarker([lat, lng], {
-          radius: 10, fillColor: '#3B82F6', color: '#fff', weight: 3, fillOpacity: 1
+          radius: 10,
+          fillColor: '#FF6B3D',
+          color: '#fff',
+          weight: 3,
+          fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
         map.setView([lat, lng], 17);
       } else {
@@ -527,7 +550,7 @@ function trackUser() {
     err => {
       console.warn('Geolocation error:', err.message);
       if (err.code === err.PERMISSION_DENIED) {
-        toast('📍 Location access denied — enable it in your browser settings to navigate.');
+        toast('📍 Enable location in browser settings to navigate.');
       }
     },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
@@ -538,21 +561,28 @@ function trackUser() {
    I'M LOST
    ════════════════════════════════ */
 lostBtn.addEventListener('click', () => {
-  if (!userLocation) { toast("📍 Still finding your location…"); return; }
+  if (!userLocation) {
+    toast("📍 Still finding your location…");
+    return;
+  }
   if (!RSU_BOUNDS.contains(userLocation)) {
-    toast("📍 You appear to be off-campus — can't pinpoint a nearby landmark.");
+    toast("📍 You're off-campus — can't find a nearby landmark.");
     return;
   }
   let nearest = null, minD = Infinity;
   allLocations.forEach(f => {
     const [lng, lat] = f.geometry.coordinates;
     const d = dist(userLocation, [lat, lng]);
-    if (d < minD) { minD = d; nearest = f; }
+    if (d < minD) {
+      minD = d;
+      nearest = f;
+    }
   });
   if (nearest) {
-    toast(`📍 Nearest: ${nearest.properties.Name} (${Math.round(minD)}m)`);
+    const distance = minD > 1000 ? (minD/1000).toFixed(1) + 'km' : Math.round(minD) + 'm';
+    toast(`📍 Nearest: ${nearest.properties.Name} (${distance})`);
     map.flyTo(userLocation, 17);
-    setTimeout(() => selectLocation(nearest), 2200);
+    setTimeout(() => selectLocation(nearest), 2000);
   }
 });
 
@@ -565,7 +595,7 @@ function toast(msg) {
   el.querySelector('.toast-msg').textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3400);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
 }
 
 /* ════════════════════════════════
@@ -574,7 +604,7 @@ function toast(msg) {
 function watchOffline() {
   const bar = $('offlineBar');
   window.addEventListener('offline', () => bar.classList.add('show'));
-  window.addEventListener('online',  () => bar.classList.remove('show'));
+  window.addEventListener('online', () => bar.classList.remove('show'));
   if (!navigator.onLine) bar.classList.add('show');
 }
 
@@ -591,7 +621,7 @@ function dist([lat1, lon1], [lat2, lon2]) {
 /* ════════════════════════════════
    THEME (system / light / dark)
    ════════════════════════════════ */
-const THEME_KEY   = 'unimap-theme-pref';
+const THEME_KEY = 'unimap-theme-pref';
 const THEME_ORDER = ['system', 'light', 'dark'];
 const THEME_ICONS = { system: '🖥️', light: '☀️', dark: '🌙' };
 const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -626,5 +656,5 @@ $('themeToggleBtn')?.addEventListener('click', () => {
    BOOT
    ════════════════════════════════ */
 initTheme();
-initMap();
 setState('default');
+initMap();

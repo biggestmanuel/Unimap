@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="unimap.css" />
 </head>
 <body>
@@ -20,9 +20,10 @@
     <div class="bar-pill"></div>
     <div class="search-trigger" id="searchTrigger">
       <div class="trigger-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </div>
       <span class="trigger-text">Where are you headed?</span>
+      <div class="trigger-accent"></div>
     </div>
   </div>
 
@@ -33,16 +34,16 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       </button>
       <div class="search-field" id="searchField">
-        <svg class="field-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="searchInput" class="search-input" placeholder="Search a location..." autocomplete="off" spellcheck="false" />
+        <svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search locations..." autocomplete="off" spellcheck="false" />
         <button class="clear-btn" id="clearBtn" aria-label="Clear search">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
       </div>
     </div>
 
     <div class="sheet-body">
-      <!-- Category filters (Phase 1) -->
+      <!-- Category filters -->
       <div class="cat-filters-wrap">
         <p class="section-label">Filter by Type</p>
         <div class="chips" id="categoryFilters"></div>
@@ -62,24 +63,35 @@
   <!-- STATE 3: Navigate bar -->
   <div class="bar nav-bar" id="navBar">
     <div class="bar-pill"></div>
-    <div class="nav-bar-row">
-      <button class="back-btn" id="navBackBtn" aria-label="Clear selection">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    <div class="nav-bar-content">
+      <div class="nav-bar-row">
+        <button class="back-btn" id="navBackBtn" aria-label="Clear selection">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="dest-info">
+          <p class="dest-label" id="destLabel"></p>
+          <p class="dest-category" id="destCategory"></p>
+        </div>
+      </div>
+      <button class="btn-navigate" id="navigateBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+        <span>Navigate</span>
       </button>
-      <p class="dest-label" id="destLabel"></p>
     </div>
-    <button class="btn-navigate" id="navigateBtn">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
-      Navigate Here
-    </button>
   </div>
 
   <!-- STATE 4: Navigating overlay -->
   <div class="nav-overlay" id="navOverlay">
-    <button class="btn-cancel-nav" id="cancelNavBtn">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      Cancel Navigation
-    </button>
+    <div class="nav-overlay-content">
+      <div class="nav-info">
+        <span class="nav-distance" id="navDistance">--</span>
+        <span class="nav-time" id="navTime">--</span>
+      </div>
+      <button class="btn-cancel-nav" id="cancelNavBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        Cancel
+      </button>
+    </div>
   </div>
 
   <!-- Theme toggle (system/light/dark) -->
@@ -88,8 +100,8 @@
   </button>
 
   <!-- I'm Lost (states 1, 3, 4) -->
-  <button class="lost-btn" id="lostBtn" aria-label="I'm lost">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+  <button class="lost-btn" id="lostBtn" aria-label="I'm lost - find nearest landmark">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
     <span>I'm Lost</span>
   </button>
 
@@ -99,7 +111,23 @@
   </div>
 
   <!-- Offline -->
-  <div class="offline-bar" id="offlineBar">📵 No connection — map cached</div>
+  <div class="offline-bar" id="offlineBar">
+    <div class="offline-content">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2z"/></svg>
+      <span>No connection — using cached data</span>
+    </div>
+  </div>
+
+  <!-- Location permission prompt -->
+  <div class="location-prompt" id="locationPrompt">
+    <div class="location-prompt-content">
+      <div class="location-prompt-icon">📍</div>
+      <h3>Enable Location</h3>
+      <p>We need your location to show where you are on campus and navigate you.</p>
+      <button class="btn-enable-location" id="enableLocationBtn">Enable Location</button>
+      <button class="btn-skip-location">Skip for now</button>
+    </div>
+  </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
