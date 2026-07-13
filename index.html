@@ -9,8 +9,26 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="unimap.css" />
+  <script>
+    // Register service worker for offline resilience
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch((err) => {
+          console.warn('[SW] Registration failed:', err);
+        });
+      });
+    }
+  </script>
 </head>
 <body>
+
+  <!-- Network status banner -->
+  <div class="network-banner" id="networkBanner" role="status" aria-live="polite">
+    <div class="network-banner-content">
+      <span class="network-icon">📡</span>
+      <span class="network-text">Poor connection - Using cached data</span>
+    </div>
+  </div>
 
   <!-- MAP -->
   <div id="map"></div>

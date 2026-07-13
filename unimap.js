@@ -17,6 +17,15 @@ const RSU_CAMPUS_POLYGON = [
 ];
 const GEOFENCE_CHECK_INTERVAL = 10000; // 10 seconds
 
+/* ── Network Resilience Config ── */
+const RETRY_CONFIG = {
+  maxAttempts: 3,
+  initialDelay: 1000,      // Start with 1s
+  maxDelay: 10000,         // Cap at 10s
+  backoffMultiplier: 2,    // Exponential: 1s, 2s, 4s
+  timeout: 5000            // 5s request timeout
+};
+
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
   "FACULTY OF ENGINEERING","Faculty of Law, Rivers State University",
@@ -80,6 +89,10 @@ let isOnCampus = false;
 let geofenceCheckTimer = null;
 let featuresFrozen = false;
 
+/* ── Network State ── */
+let isOnlineConnection = navigator.onLine;
+let networkBannerTimer = null;
+
 /* ── DOM ── */
 const $ = id => document.getElementById(id);
 const defaultBar   = $('defaultBar');
@@ -92,6 +105,7 @@ const clearBtn     = $('clearBtn');
 const lostBtn      = $('lostBtn');
 const geofenceModal = $('geofenceModal');
 const retryLocationBtn = $('retryLocationBtn');
+const networkBanner = $('networkBanner');
 
 /* ════════════════════════════════
    STATE MACHINE
@@ -119,6 +133,93 @@ function setState(s) {
     navOverlay.classList.add('visible');
     lostBtn.classList.remove('hidden');
   }
+}
+
+/* ════════════════════════════════
+   NETWORK RESILIENCE
+   ════════════════════════════════ */
+
+/**
+ * Show/hide network status banner
+ */
+function showNetworkBanner(show = true) {
+  if (!networkBanner) return;
+  if (show) {
+    networkBanner.classList.add('visible');
+  } else {
+    networkBanner.classList.remove('visible');
+  }
+}
+
+/**
+ * Detect network status changes
+ */
+function setupNetworkDetection() {
+  // Check online/offline status
+  window.addEventListener('online', () => {
+    isOnlineConnection = true;
+    showNetworkBanner(false);
+    toast('Connected - Using live data');
+  });
+
+  window.addEventListener('offline', () => {
+    isOnlineConnection = false;
+    showNetworkBanner(true);
+    toast('Offline - Using cached data');
+  });
+
+  // Check connection speed periodically (simple method)
+  setInterval(() => {
+    if (!navigator.connection) return;
+    
+    const connection = navigator.connection;
+    const effectiveType = connection.effectiveType; // '4g', '3g', '2g', 'slow-2g'
+    const saveData = connection.saveData;
+    
+    if (effectiveType === '2g' || effectiveType === 'slow-2g' || saveData) {
+      isOnlineConnection = true; // Still online, but slow
+      showNetworkBanner(true);
+    }
+  }, 5000);
+}
+
+/**
+ * Fetch with smart retry and timeout
+ */
+async function fetchWithRetry(url, options = {}) {
+  let lastError;
+  let delay = RETRY_CONFIG.initialDelay;
+
+  for (let attempt = 1; attempt <= RETRY_CONFIG.maxAttempts; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), RETRY_CONFIG.timeout);
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt < RETRY_CONFIG.maxAttempts) {
+        console.warn(`[Network] Attempt ${attempt} failed, retrying in ${delay}ms:`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * RETRY_CONFIG.backoffMultiplier, RETRY_CONFIG.maxDelay);
+      }
+    }
+  }
+
+  console.error(`[Network] All ${RETRY_CONFIG.maxAttempts} attempts failed:`, lastError);
+  throw lastError;
 }
 
 /* ════════════════════════════════
@@ -457,7 +558,7 @@ function resetCategoryFilter() {
   restoreDefaultMarkers();
 }
 
-/* ══════════���═════════════════════
+/* ═════════������═════════════════════
    POPULAR CHIPS
    ════════════════════════════════ */
 function buildChips() {
@@ -859,6 +960,12 @@ if (viewCampusBtn) {
    BOOT
    ════════════════════════════════ */
 initTheme();
+setupNetworkDetection();
 setState('default');
 initMap();
 startGeofenceMonitoring();
+
+// Show network banner if starting offline
+if (!navigator.onLine) {
+  showNetworkBanner(true);
+}
