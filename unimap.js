@@ -6,6 +6,17 @@ const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
 const REPORT_EMAIL = 'unimap.rsu@gmail.com';
 
+/* ── Geofencing Config (100m buffer for GPS drift tolerance) ── */
+const GEOFENCE_BUFFER_METERS = 100;
+const RSU_CAMPUS_POLYGON = [
+  [4.808, 6.990],
+  [4.808, 6.972],
+  [4.788, 6.972],
+  [4.788, 6.990],
+  [4.808, 6.990]
+];
+const GEOFENCE_CHECK_INTERVAL = 10000; // 10 seconds
+
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
   "FACULTY OF ENGINEERING","Faculty of Law, Rivers State University",
@@ -64,6 +75,11 @@ let selectedLoc    = null;
 let isNavigating   = false;
 let activeCategory = null;
 
+/* ── Geofence State ── */
+let isOnCampus = false;
+let geofenceCheckTimer = null;
+let featuresFrozen = false;
+
 /* ── DOM ── */
 const $ = id => document.getElementById(id);
 const defaultBar   = $('defaultBar');
@@ -74,6 +90,8 @@ const searchInput  = $('searchInput');
 const suggestions  = $('suggestions');
 const clearBtn     = $('clearBtn');
 const lostBtn      = $('lostBtn');
+const geofenceModal = $('geofenceModal');
+const retryLocationBtn = $('retryLocationBtn');
 
 /* ════════════════════════════════
    STATE MACHINE
@@ -101,6 +119,144 @@ function setState(s) {
     navOverlay.classList.add('visible');
     lostBtn.classList.remove('hidden');
   }
+}
+
+/* ════════════════════════════════
+   GEOFENCING
+   ════════════════════════════════ */
+
+/**
+ * Point-in-polygon test using ray casting algorithm
+ * Tests if a point is inside a polygon with a buffer tolerance
+ */
+function isPointInPolygon([lat, lng], polygon, bufferMeters = 0) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [lat1, lon1] = polygon[i];
+    const [lat2, lon2] = polygon[j];
+    
+    if ((lon1 > lng) !== (lon2 > lng) &&
+        lat < (lat2 - lat1) * (lng - lon1) / (lon2 - lon1) + lat1) {
+      inside = !inside;
+    }
+  }
+  
+  if (!inside && bufferMeters > 0) {
+    for (let i = 0; i < polygon.length - 1; i++) {
+      const edgeDist = pointToLineDistance([lat, lng], polygon[i], polygon[i + 1]);
+      if (edgeDist < bufferMeters / 111000) {
+        return true;
+      }
+    }
+  }
+  
+  return inside;
+}
+
+/**
+ * Calculate perpendicular distance from point to line segment
+ */
+function pointToLineDistance(point, lineStart, lineEnd) {
+  const [lat, lng] = point;
+  const [lat1, lng1] = lineStart;
+  const [lat2, lng2] = lineEnd;
+  
+  const A = lat - lat1;
+  const B = lng - lng1;
+  const C = lat2 - lat1;
+  const D = lng2 - lng1;
+  
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  let param = -1;
+  
+  if (lenSq !== 0) param = dot / lenSq;
+  
+  let xx, yy;
+  if (param < 0) {
+    xx = lat1;
+    yy = lng1;
+  } else if (param > 1) {
+    xx = lat2;
+    yy = lng2;
+  } else {
+    xx = lat1 + param * C;
+    yy = lng1 + param * D;
+  }
+  
+  const dx = lat - xx;
+  const dy = lng - yy;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Check if user is within campus boundary (with buffer)
+ */
+function checkGeofence(location) {
+  if (!location) return false;
+  const wasOnCampus = isOnCampus;
+  isOnCampus = isPointInPolygon(location, RSU_CAMPUS_POLYGON, GEOFENCE_BUFFER_METERS);
+  
+  if (!wasOnCampus && isOnCampus) {
+    toast('📍 Welcome back to campus! All features unlocked.');
+    unlockFeatures();
+  } else if (wasOnCampus && !isOnCampus) {
+    freezeFeatures();
+    showGeofenceModal();
+  }
+  
+  return isOnCampus;
+}
+
+/**
+ * Show the out-of-campus modal
+ */
+function showGeofenceModal() {
+  geofenceModal.classList.add('visible');
+}
+
+/**
+ * Hide the geofence modal
+ */
+function hideGeofenceModal() {
+  geofenceModal.classList.remove('visible');
+}
+
+/**
+ * Freeze (disable) navigation and locked features
+ */
+function freezeFeatures() {
+  featuresFrozen = true;
+  $('navigateBtn').disabled = true;
+  $('navigateBtn').style.opacity = '0.5';
+  $('navigateBtn').style.cursor = 'not-allowed';
+  lostBtn.disabled = true;
+  lostBtn.style.opacity = '0.5';
+}
+
+/**
+ * Unlock all features
+ */
+function unlockFeatures() {
+  featuresFrozen = false;
+  hideGeofenceModal();
+  $('navigateBtn').disabled = false;
+  $('navigateBtn').style.opacity = '1';
+  $('navigateBtn').style.cursor = 'pointer';
+  lostBtn.disabled = false;
+  lostBtn.style.opacity = '1';
+}
+
+/**
+ * Periodically check geofence status
+ */
+function startGeofenceMonitoring() {
+  if (geofenceCheckTimer) clearInterval(geofenceCheckTimer);
+  geofenceCheckTimer = setInterval(() => {
+    if (userLocation) {
+      checkGeofence(userLocation);
+    }
+  }, GEOFENCE_CHECK_INTERVAL);
 }
 
 /* ════════════════════════════════
@@ -410,7 +566,7 @@ function showMarker(feature) {
 
 /* ════════════════════════════════
    SELECT LOCATION
-   ════════════════════════════════ */
+   ════════════════════���═══════════ */
 function selectLocation(feature) {
   selectedLoc = feature;
   const [lng, lat] = feature.geometry.coordinates;
@@ -436,6 +592,10 @@ $('navBackBtn').addEventListener('click', () => {
    ════════════════════════════════ */
 $('navigateBtn').addEventListener('click', () => {
   if (!selectedLoc) return;
+  if (featuresFrozen) {
+    toast('🗺️ Navigation is only available on campus.');
+    return;
+  }
   if (!userLocation) {
     toast('📍 Still finding your location…');
     return;
@@ -527,6 +687,10 @@ function trackUser() {
   navigator.geolocation.watchPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       userLocation = [lat, lng];
+      
+      // Check geofence on location update
+      checkGeofence(userLocation);
+      
       if (!userMarker) {
         userMarker = L.circleMarker([lat, lng], {
           radius: 10,
@@ -653,8 +817,30 @@ $('themeToggleBtn')?.addEventListener('click', () => {
 });
 
 /* ════════════════════════════════
+   GEOFENCE EVENT LISTENERS
+   ════════════════════════════════ */
+if (retryLocationBtn) {
+  retryLocationBtn.addEventListener('click', () => {
+    if (userLocation) {
+      checkGeofence(userLocation);
+    } else {
+      toast('📍 Checking your location...');
+    }
+  });
+}
+
+const viewCampusBtn = document.querySelector('.btn-view-campus-map');
+if (viewCampusBtn) {
+  viewCampusBtn.addEventListener('click', () => {
+    hideGeofenceModal();
+    toast('📍 Map is in read-only mode. Move onto campus to unlock navigation.');
+  });
+}
+
+/* ════════════════════════════════
    BOOT
    ════════════════════════════════ */
 initTheme();
 setState('default');
 initMap();
+startGeofenceMonitoring();

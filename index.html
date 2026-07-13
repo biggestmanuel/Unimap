@@ -129,6 +129,20 @@
     </div>
   </div>
 
+  <!-- Geofence restriction modal -->
+  <div class="geofence-modal" id="geofenceModal">
+    <div class="geofence-modal-content">
+      <div class="geofence-modal-icon">🗺️</div>
+      <h2>You&apos;re Outside Campus</h2>
+      <p>UniMap is designed to help you navigate while you&apos;re on the RSU campus. To access navigation, landmarks, and directions, please move within the RSU campus perimeter and try again.</p>
+      <div class="geofence-modal-buttons">
+        <button class="btn-retry-location" id="retryLocationBtn">Retry Location</button>
+        <button class="btn-view-campus-map">View Campus Map (Read-only)</button>
+      </div>
+      <p class="geofence-modal-hint">Don&apos;t worry — all features will unlock automatically once you&apos;re on campus.</p>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
   <script src="unimap.js"></script>
