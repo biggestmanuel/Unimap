@@ -762,6 +762,10 @@ input {
   z-index: 999;
 }
 
+.location-prompt.hidden {
+  display: none !important;
+}
+
 .location-prompt-content {
   background: var(--surface);
   border: 1px solid var(--border);

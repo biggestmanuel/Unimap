@@ -261,7 +261,7 @@ function startGeofenceMonitoring() {
 
 /* ════════════════════════════════
    MAP INIT
-   ════════════════════════════════ */
+   ══════════════════════��═════════ */
 function initMap() {
   map = L.map('map', {
     center: RSU_CENTER,
@@ -457,7 +457,7 @@ function resetCategoryFilter() {
   restoreDefaultMarkers();
 }
 
-/* ════════════════════════════════
+/* ══════════���═════════════════════
    POPULAR CHIPS
    ════════════════════════════════ */
 function buildChips() {
@@ -814,6 +814,24 @@ $('themeToggleBtn')?.addEventListener('click', () => {
   localStorage.setItem(THEME_KEY, next);
   applyTheme(next);
   toast(`Theme: ${next[0].toUpperCase()}${next.slice(1)}`);
+});
+
+/* ════════════════════════════════
+   LOCATION PERMISSION HANDLERS (Event Delegation)
+   ════════════════════════════════ */
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.btn-enable-location')) {
+    const prompt = $('locationPrompt');
+    prompt.classList.add('hidden');
+    prompt.style.display = 'none';
+    trackUser();
+  }
+  if (e.target.closest('.btn-skip-location')) {
+    const prompt = $('locationPrompt');
+    prompt.classList.add('hidden');
+    prompt.style.display = 'none';
+    toast('📍 Location skipped. You can enable it anytime via the map.');
+  }
 });
 
 /* ════════════════════════════════
