@@ -81,6 +81,52 @@ html, body {
 }
 
 /* ═══════════════════════════════
+   LOADING SKELETON
+   ═══════════════════════════════ */
+.loading-skeleton {
+  position: fixed;
+  inset: 0;
+  background: var(--background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+
+.loading-skeleton.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.skeleton-content {
+  text-align: center;
+}
+
+.skeleton-spinner {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.skeleton-text {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ═══════════════════════════════
    NETWORK STATUS BANNER
    ═══════════════════════════════ */
 .network-banner {
@@ -117,9 +163,6 @@ html, body {
 .network-text {
   flex: 1;
   min-width: 0;
-}
-  color: var(--text);
-  transition: background 0.3s var(--ease), color 0.3s var(--ease);
 }
 
 body {
@@ -790,7 +833,7 @@ input {
 
 /* ═══════════════════════════════
    LOCATION PERMISSION MODAL
-   ═══════════════════════════════ */
+   ═══════════════════════��═══════ */
 
 .location-prompt {
   position: fixed;

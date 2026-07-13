@@ -349,21 +349,40 @@ function unlockFeatures() {
 }
 
 /**
- * Periodically check geofence status
+ * Intelligently check geofence - only when navigating or at boundaries
  */
 function startGeofenceMonitoring() {
   if (geofenceCheckTimer) clearInterval(geofenceCheckTimer);
+  
+  // Only check actively when navigating or when location changes significantly
+  let lastCheckLocation = userLocation;
+  const CHECK_DISTANCE_M = 30; // Only recheck if moved 30+ meters
+
   geofenceCheckTimer = setInterval(() => {
-    if (userLocation) {
+    if (!userLocation) return;
+
+    // Calculate distance from last check
+    const R = 6371000; // Earth radius in meters
+    const dLat = (userLocation[0] - lastCheckLocation[0]) * Math.PI / 180;
+    const dLng = (userLocation[1] - lastCheckLocation[1]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lastCheckLocation[0] * Math.PI / 180) * Math.cos(userLocation[0] * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c;
+
+    // Only recheck if moved significantly
+    if (distance > CHECK_DISTANCE_M || isNavigating) {
       checkGeofence(userLocation);
+      lastCheckLocation = userLocation;
     }
-  }, GEOFENCE_CHECK_INTERVAL);
+  }, 5000); // Check every 5s instead of 10s, but with smart gating
 }
 
 /* ════════════════════════════════
    MAP INIT
    ══════════════════════��═════════ */
-function initMap() {
+async function initMap() {
   map = L.map('map', {
     center: RSU_CENTER,
     zoom: 16,
@@ -372,64 +391,161 @@ function initMap() {
     maxBoundsViscosity: 0.85
   });
 
+  // Add tiles immediately (low data impact)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap',
     maxZoom: 19,
     minZoom: 14
   }).addTo(map);
 
-  loadLocations();
-  loadEvents();
+  // Initialize DB for caching
+  await initDB().catch(() => null);
+
+  // Load POIs first (higher priority), defer events
+  await loadLocations();
+  
+  // Load tracking immediately
   trackUser();
   watchOffline();
+
+  // Hide skeleton once POIs are ready
+  const skeleton = $('loadingSkeleton');
+  if (skeleton) {
+    skeleton.classList.add('hidden');
+  }
+
+  // Load events in background (lower priority)
+  loadEvents().catch(() => {
+    console.warn('[UniMap] Events load failed, continuing without events');
+  });
 }
 
 /* ════════════════════════════════
-   LOAD GEOJSON (POIs)
+   LOAD GEOJSON (POIs) - Optimized with caching
    ════════════════════════════════ */
 async function loadLocations() {
   try {
-    const res  = await fetch('unimap.geojson');
-    const data = await res.json();
+    // Try to use cached data first (stale-while-revalidate)
+    let data = null;
+    let usedCache = false;
+
+    // Check if cache is fresh
+    const cached = await getCachedData(STORES.locations);
+    const isFresh = await isCacheFresh(STORES.locations, 6 * 60 * 60 * 1000); // 6 hours
+
+    if (cached && isFresh) {
+      // Use cache immediately
+      data = { features: cached };
+      usedCache = true;
+      console.log('[UniMap] Using fresh cached locations');
+    }
+
+    // Fetch fresh data in background if not using fresh cache
+    if (!isFresh) {
+      try {
+        const res = await fetchWithRetry('unimap.geojson');
+        data = await res.json();
+        await cacheData(STORES.locations, data.features, { source: 'network' });
+        if (usedCache) console.log('[UniMap] Updated location cache from network');
+      } catch (netErr) {
+        if (!usedCache) {
+          // Network failed and no cache available
+          throw netErr;
+        }
+        // Use stale cache if available
+        console.warn('[UniMap] Network failed, using stale cache:', netErr.message);
+      }
+    }
+
+    if (!data) throw new Error('No data available');
+
+    // Filter and render markers
     allLocations = data.features.filter(f => f.geometry.type === 'Point');
 
-    allLocations.forEach(feature => {
-      const { Name, category, safety } = feature.properties;
-      const cat = CATEGORIES[category] ? category : 'other';
-      const cfg = CATEGORIES[cat];
+    // Lazy-load markers: render only visible ones initially
+    const viewport = map.getBounds();
+    let markersRendered = 0;
+    const maxInitialMarkers = 50;
+
+    allLocations.forEach((feature, idx) => {
       const [lng, lat] = feature.geometry.coordinates;
+      const latlng = L.latLng(lat, lng);
+      
+      // Only render markers in viewport on initial load (optimization)
+      const isVisible = viewport.contains(latlng);
+      const shouldRender = isVisible || markersRendered < maxInitialMarkers;
 
-      const m = L.circleMarker([lat, lng], {
-        radius: safety ? 9 : 7,
-        fillColor: safety ? SAFETY_COLOR : cfg.color,
-        color: '#ffffff',
-        weight: safety ? 3 : 2,
-        opacity: 1,
-        fillOpacity: 0.5,
-        className: safety ? 'pin-safety' : ''
-      }).addTo(map);
-
-      m.bindPopup(() => buildPopupHTML(feature));
-      m.on('click', () => selectLocation(feature));
-      feature._marker = m;
+      if (shouldRender) {
+        addMarkerToMap(feature);
+        markersRendered++;
+      } else {
+        // Defer marker rendering for off-screen items
+        setTimeout(() => addMarkerToMap(feature), 2000 + idx * 10);
+      }
     });
 
     buildChips();
     buildCategoryFilters();
+    
   } catch (e) {
-    console.error('GeoJSON load failed:', e);
+    console.error('[UniMap] GeoJSON load failed:', e.message);
+    toast('Map data unavailable - check your connection');
   }
 }
 
+/**
+ * Add single marker to map (extracted for lazy loading)
+ */
+function addMarkerToMap(feature) {
+  const { Name, category, safety } = feature.properties;
+  const cat = CATEGORIES[category] ? category : 'other';
+  const cfg = CATEGORIES[cat];
+  const [lng, lat] = feature.geometry.coordinates;
+
+  const m = L.circleMarker([lat, lng], {
+    radius: safety ? 9 : 7,
+    fillColor: safety ? SAFETY_COLOR : cfg.color,
+    color: '#ffffff',
+    weight: safety ? 3 : 2,
+    opacity: 1,
+    fillOpacity: 0.5,
+    className: safety ? 'pin-safety' : ''
+  }).addTo(map);
+
+  m.bindPopup(() => buildPopupHTML(feature));
+  m.on('click', () => selectLocation(feature));
+  feature._marker = m;
+}
+
 /* ════════════════════════════════
-   LOAD EVENTS
+   LOAD EVENTS - Background fetch with caching
    ════════════════════════════════ */
 async function loadEvents() {
   try {
-    const res  = await fetch('events.json');
-    const data = await res.json();
-    const now  = new Date();
+    // Try cached events first
+    let data = null;
+    const cached = await getCachedData(STORES.events);
+    const isFresh = await isCacheFresh(STORES.events, 2 * 60 * 60 * 1000); // 2 hours for events
 
+    if (cached && isFresh) {
+      data = { events: cached };
+    }
+
+    // Fetch fresh in background
+    fetchWithRetry('events.json')
+      .then(res => res.json())
+      .then(freshData => {
+        if (freshData.events && freshData.events.length > 0) {
+          cacheData(STORES.events, freshData.events, { source: 'network' });
+        }
+      })
+      .catch(() => {
+        // Silent fail for events (non-critical)
+      });
+
+    if (!data) return;
+
+    const now = new Date();
     allEvents = (data.events || []).filter(ev => new Date(ev.end) >= now);
 
     allEvents.forEach(ev => {
@@ -445,7 +561,7 @@ async function loadEvents() {
       ev._marker = m;
     });
   } catch (e) {
-    console.warn('events.json not loaded (optional):', e.message);
+    console.warn('[UniMap] Events load failed (optional):', e.message);
   }
 }
 
@@ -957,15 +1073,33 @@ if (viewCampusBtn) {
 }
 
 /* ════════════════════════════════
-   BOOT
+   BOOT - Optimized startup sequence
    ════════════════════════════════ */
+
+// Show loading skeleton while preparing
+const skeleton = $('loadingSkeleton');
+if (skeleton) {
+  skeleton.classList.remove('hidden');
+}
+
+// Start UI immediately
 initTheme();
 setupNetworkDetection();
 setState('default');
-initMap();
-startGeofenceMonitoring();
 
-// Show network banner if starting offline
+// Show network status if offline
 if (!navigator.onLine) {
   showNetworkBanner(true);
 }
+
+// Initialize map asynchronously (won't block)
+initMap()
+  .then(() => {
+    startGeofenceMonitoring();
+    // Skeleton will be hidden by initMap when ready
+  })
+  .catch((err) => {
+    console.error('[UniMap] Boot failed:', err);
+    if (skeleton) skeleton.classList.add('hidden');
+    toast('Failed to load map - please refresh');
+  });
