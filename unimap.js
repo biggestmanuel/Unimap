@@ -1,10 +1,30 @@
 /* ================================================
-   UNIMAP — Main Script
+   UNIMAP — Modern Script (Redesign)
    ================================================ */
 
 const RSU_CENTER = [4.7975, 6.9805];
 const RSU_BOUNDS = L.latLngBounds([4.788, 6.972], [4.808, 6.990]);
-const REPORT_EMAIL = 'unimap.rsu@gmail.com'; // TODO: swap for the real inbox this should land in
+const REPORT_EMAIL = 'unimap.rsu@gmail.com';
+
+/* ── Geofencing Config (100m buffer for GPS drift tolerance) ── */
+const GEOFENCE_BUFFER_METERS = 100;
+const RSU_CAMPUS_POLYGON = [
+  [4.808, 6.990],
+  [4.808, 6.972],
+  [4.788, 6.972],
+  [4.788, 6.990],
+  [4.808, 6.990]
+];
+const GEOFENCE_CHECK_INTERVAL = 10000; // 10 seconds
+
+/* ── Network Resilience Config ── */
+const RETRY_CONFIG = {
+  maxAttempts: 3,
+  initialDelay: 1000,      // Start with 1s
+  maxDelay: 10000,         // Cap at 10s
+  backoffMultiplier: 2,    // Exponential: 1s, 2s, 4s
+  timeout: 5000            // 5s request timeout
+};
 
 const POPULAR_PLACES = [
   "UST Shuttle Park","Convocation Arena","Faculty of Management Sciences",
@@ -62,18 +82,30 @@ let allLocations   = [];
 let allEvents      = [];
 let selectedLoc    = null;
 let isNavigating   = false;
-let activeCategory = null; // null = show all
+let activeCategory = null;
+
+/* ── Geofence State ── */
+let isOnCampus = false;
+let geofenceCheckTimer = null;
+let featuresFrozen = false;
+
+/* ── Network State ── */
+let isOnlineConnection = navigator.onLine;
+let networkBannerTimer = null;
 
 /* ── DOM ── */
 const $ = id => document.getElementById(id);
-const defaultBar  = $('defaultBar');
-const fullSheet   = $('fullSheet');
-const navBar      = $('navBar');
-const navOverlay  = $('navOverlay');
-const searchInput = $('searchInput');
-const suggestions = $('suggestions');
-const clearBtn    = $('clearBtn');
-const lostBtn     = $('lostBtn');
+const defaultBar   = $('defaultBar');
+const fullSheet    = $('fullSheet');
+const navBar       = $('navBar');
+const navOverlay   = $('navOverlay');
+const searchInput  = $('searchInput');
+const suggestions  = $('suggestions');
+const clearBtn     = $('clearBtn');
+const lostBtn      = $('lostBtn');
+const geofenceModal = $('geofenceModal');
+const retryLocationBtn = $('retryLocationBtn');
+const networkBanner = $('networkBanner');
 
 /* ════════════════════════════════
    STATE MACHINE
@@ -104,9 +136,253 @@ function setState(s) {
 }
 
 /* ════════════════════════════════
-   MAP INIT
+   NETWORK RESILIENCE
    ════════════════════════════════ */
-function initMap() {
+
+/**
+ * Show/hide network status banner
+ */
+function showNetworkBanner(show = true) {
+  if (!networkBanner) return;
+  if (show) {
+    networkBanner.classList.add('visible');
+  } else {
+    networkBanner.classList.remove('visible');
+  }
+}
+
+/**
+ * Detect network status changes
+ */
+function setupNetworkDetection() {
+  // Check online/offline status
+  window.addEventListener('online', () => {
+    isOnlineConnection = true;
+    showNetworkBanner(false);
+    toast('Connected - Using live data');
+  });
+
+  window.addEventListener('offline', () => {
+    isOnlineConnection = false;
+    showNetworkBanner(true);
+    toast('Offline - Using cached data');
+  });
+
+  // Check connection speed periodically (simple method)
+  setInterval(() => {
+    if (!navigator.connection) return;
+    
+    const connection = navigator.connection;
+    const effectiveType = connection.effectiveType; // '4g', '3g', '2g', 'slow-2g'
+    const saveData = connection.saveData;
+    
+    if (effectiveType === '2g' || effectiveType === 'slow-2g' || saveData) {
+      isOnlineConnection = true; // Still online, but slow
+      showNetworkBanner(true);
+    }
+  }, 5000);
+}
+
+/**
+ * Fetch with smart retry and timeout
+ */
+async function fetchWithRetry(url, options = {}) {
+  let lastError;
+  let delay = RETRY_CONFIG.initialDelay;
+
+  for (let attempt = 1; attempt <= RETRY_CONFIG.maxAttempts; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), RETRY_CONFIG.timeout);
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt < RETRY_CONFIG.maxAttempts) {
+        console.warn(`[Network] Attempt ${attempt} failed, retrying in ${delay}ms:`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * RETRY_CONFIG.backoffMultiplier, RETRY_CONFIG.maxDelay);
+      }
+    }
+  }
+
+  console.error(`[Network] All ${RETRY_CONFIG.maxAttempts} attempts failed:`, lastError);
+  throw lastError;
+}
+
+/* ════════════════════════════════
+   GEOFENCING
+   ════════════════════════════════ */
+
+/**
+ * Point-in-polygon test using ray casting algorithm
+ * Tests if a point is inside a polygon with a buffer tolerance
+ */
+function isPointInPolygon([lat, lng], polygon, bufferMeters = 0) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [lat1, lon1] = polygon[i];
+    const [lat2, lon2] = polygon[j];
+    
+    if ((lon1 > lng) !== (lon2 > lng) &&
+        lat < (lat2 - lat1) * (lng - lon1) / (lon2 - lon1) + lat1) {
+      inside = !inside;
+    }
+  }
+  
+  if (!inside && bufferMeters > 0) {
+    for (let i = 0; i < polygon.length - 1; i++) {
+      const edgeDist = pointToLineDistance([lat, lng], polygon[i], polygon[i + 1]);
+      if (edgeDist < bufferMeters / 111000) {
+        return true;
+      }
+    }
+  }
+  
+  return inside;
+}
+
+/**
+ * Calculate perpendicular distance from point to line segment
+ */
+function pointToLineDistance(point, lineStart, lineEnd) {
+  const [lat, lng] = point;
+  const [lat1, lng1] = lineStart;
+  const [lat2, lng2] = lineEnd;
+  
+  const A = lat - lat1;
+  const B = lng - lng1;
+  const C = lat2 - lat1;
+  const D = lng2 - lng1;
+  
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  let param = -1;
+  
+  if (lenSq !== 0) param = dot / lenSq;
+  
+  let xx, yy;
+  if (param < 0) {
+    xx = lat1;
+    yy = lng1;
+  } else if (param > 1) {
+    xx = lat2;
+    yy = lng2;
+  } else {
+    xx = lat1 + param * C;
+    yy = lng1 + param * D;
+  }
+  
+  const dx = lat - xx;
+  const dy = lng - yy;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Check if user is within campus boundary (with buffer)
+ */
+function checkGeofence(location) {
+  if (!location) return false;
+  const wasOnCampus = isOnCampus;
+  isOnCampus = isPointInPolygon(location, RSU_CAMPUS_POLYGON, GEOFENCE_BUFFER_METERS);
+  
+  if (!wasOnCampus && isOnCampus) {
+    toast('📍 Welcome back to campus! All features unlocked.');
+    unlockFeatures();
+  } else if (wasOnCampus && !isOnCampus) {
+    freezeFeatures();
+    showGeofenceModal();
+  }
+  
+  return isOnCampus;
+}
+
+/**
+ * Show the out-of-campus modal
+ */
+function showGeofenceModal() {
+  geofenceModal.classList.add('visible');
+}
+
+/**
+ * Hide the geofence modal
+ */
+function hideGeofenceModal() {
+  geofenceModal.classList.remove('visible');
+}
+
+/**
+ * Freeze (disable) navigation and locked features
+ */
+function freezeFeatures() {
+  featuresFrozen = true;
+  $('navigateBtn').disabled = true;
+  $('navigateBtn').style.opacity = '0.5';
+  $('navigateBtn').style.cursor = 'not-allowed';
+  lostBtn.disabled = true;
+  lostBtn.style.opacity = '0.5';
+}
+
+/**
+ * Unlock all features
+ */
+function unlockFeatures() {
+  featuresFrozen = false;
+  hideGeofenceModal();
+  $('navigateBtn').disabled = false;
+  $('navigateBtn').style.opacity = '1';
+  $('navigateBtn').style.cursor = 'pointer';
+  lostBtn.disabled = false;
+  lostBtn.style.opacity = '1';
+}
+
+/**
+ * Intelligently check geofence - only when navigating or at boundaries
+ */
+function startGeofenceMonitoring() {
+  if (geofenceCheckTimer) clearInterval(geofenceCheckTimer);
+  
+  // Only check actively when navigating or when location changes significantly
+  let lastCheckLocation = userLocation;
+  const CHECK_DISTANCE_M = 30; // Only recheck if moved 30+ meters
+
+  geofenceCheckTimer = setInterval(() => {
+    if (!userLocation) return;
+
+    // Calculate distance from last check
+    const R = 6371000; // Earth radius in meters
+    const dLat = (userLocation[0] - lastCheckLocation[0]) * Math.PI / 180;
+    const dLng = (userLocation[1] - lastCheckLocation[1]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lastCheckLocation[0] * Math.PI / 180) * Math.cos(userLocation[0] * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c;
+
+    // Only recheck if moved significantly
+    if (distance > CHECK_DISTANCE_M || isNavigating) {
+      checkGeofence(userLocation);
+      lastCheckLocation = userLocation;
+    }
+  }, 5000); // Check every 5s instead of 10s, but with smart gating
+}
+
+/* ════════════════════════════════
+   MAP INIT
+   ══════════════════════��═════════ */
+async function initMap() {
   map = L.map('map', {
     center: RSU_CENTER,
     zoom: 16,
@@ -115,64 +391,161 @@ function initMap() {
     maxBoundsViscosity: 0.85
   });
 
+  // Add tiles immediately (low data impact)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap',
     maxZoom: 19,
     minZoom: 14
   }).addTo(map);
 
-  loadLocations();
-  loadEvents();
+  // Initialize DB for caching
+  await initDB().catch(() => null);
+
+  // Load POIs first (higher priority), defer events
+  await loadLocations();
+  
+  // Load tracking immediately
   trackUser();
   watchOffline();
+
+  // Hide skeleton once POIs are ready
+  const skeleton = $('loadingSkeleton');
+  if (skeleton) {
+    skeleton.classList.add('hidden');
+  }
+
+  // Load events in background (lower priority)
+  loadEvents().catch(() => {
+    console.warn('[UniMap] Events load failed, continuing without events');
+  });
 }
 
 /* ════════════════════════════════
-   LOAD GEOJSON (POIs)
+   LOAD GEOJSON (POIs) - Optimized with caching
    ════════════════════════════════ */
 async function loadLocations() {
   try {
-    const res  = await fetch('unimap.geojson');
-    const data = await res.json();
+    // Try to use cached data first (stale-while-revalidate)
+    let data = null;
+    let usedCache = false;
+
+    // Check if cache is fresh
+    const cached = await getCachedData(STORES.locations);
+    const isFresh = await isCacheFresh(STORES.locations, 6 * 60 * 60 * 1000); // 6 hours
+
+    if (cached && isFresh) {
+      // Use cache immediately
+      data = { features: cached };
+      usedCache = true;
+      console.log('[UniMap] Using fresh cached locations');
+    }
+
+    // Fetch fresh data in background if not using fresh cache
+    if (!isFresh) {
+      try {
+        const res = await fetchWithRetry('unimap.geojson');
+        data = await res.json();
+        await cacheData(STORES.locations, data.features, { source: 'network' });
+        if (usedCache) console.log('[UniMap] Updated location cache from network');
+      } catch (netErr) {
+        if (!usedCache) {
+          // Network failed and no cache available
+          throw netErr;
+        }
+        // Use stale cache if available
+        console.warn('[UniMap] Network failed, using stale cache:', netErr.message);
+      }
+    }
+
+    if (!data) throw new Error('No data available');
+
+    // Filter and render markers
     allLocations = data.features.filter(f => f.geometry.type === 'Point');
 
-    allLocations.forEach(feature => {
-      const { Name, category, safety } = feature.properties;
-      const cat = CATEGORIES[category] ? category : 'other';
-      const cfg = CATEGORIES[cat];
+    // Lazy-load markers: render only visible ones initially
+    const viewport = map.getBounds();
+    let markersRendered = 0;
+    const maxInitialMarkers = 50;
+
+    allLocations.forEach((feature, idx) => {
       const [lng, lat] = feature.geometry.coordinates;
+      const latlng = L.latLng(lat, lng);
+      
+      // Only render markers in viewport on initial load (optimization)
+      const isVisible = viewport.contains(latlng);
+      const shouldRender = isVisible || markersRendered < maxInitialMarkers;
 
-      const m = L.circleMarker([lat, lng], {
-        radius: safety ? 9 : 7,
-        fillColor: safety ? SAFETY_COLOR : cfg.color,
-        color: '#ffffff',
-        weight: safety ? 3 : 2,
-        opacity: 1,
-        fillOpacity: 0.55,           // dimly visible by default (Phase 1: category-tagged pins)
-        className: safety ? 'pin-safety' : ''
-      }).addTo(map);
-
-      m.bindPopup(() => buildPopupHTML(feature));
-      m.on('click', () => selectLocation(feature));
-      feature._marker = m;
+      if (shouldRender) {
+        addMarkerToMap(feature);
+        markersRendered++;
+      } else {
+        // Defer marker rendering for off-screen items
+        setTimeout(() => addMarkerToMap(feature), 2000 + idx * 10);
+      }
     });
 
     buildChips();
     buildCategoryFilters();
+    
   } catch (e) {
-    console.error('GeoJSON load failed:', e);
+    console.error('[UniMap] GeoJSON load failed:', e.message);
+    toast('Map data unavailable - check your connection');
   }
 }
 
+/**
+ * Add single marker to map (extracted for lazy loading)
+ */
+function addMarkerToMap(feature) {
+  const { Name, category, safety } = feature.properties;
+  const cat = CATEGORIES[category] ? category : 'other';
+  const cfg = CATEGORIES[cat];
+  const [lng, lat] = feature.geometry.coordinates;
+
+  const m = L.circleMarker([lat, lng], {
+    radius: safety ? 9 : 7,
+    fillColor: safety ? SAFETY_COLOR : cfg.color,
+    color: '#ffffff',
+    weight: safety ? 3 : 2,
+    opacity: 1,
+    fillOpacity: 0.5,
+    className: safety ? 'pin-safety' : ''
+  }).addTo(map);
+
+  m.bindPopup(() => buildPopupHTML(feature));
+  m.on('click', () => selectLocation(feature));
+  feature._marker = m;
+}
+
 /* ════════════════════════════════
-   LOAD EVENTS (Phase 1: event pins)
+   LOAD EVENTS - Background fetch with caching
    ════════════════════════════════ */
 async function loadEvents() {
   try {
-    const res  = await fetch('events.json');
-    const data = await res.json();
-    const now  = new Date();
+    // Try cached events first
+    let data = null;
+    const cached = await getCachedData(STORES.events);
+    const isFresh = await isCacheFresh(STORES.events, 2 * 60 * 60 * 1000); // 2 hours for events
 
+    if (cached && isFresh) {
+      data = { events: cached };
+    }
+
+    // Fetch fresh in background
+    fetchWithRetry('events.json')
+      .then(res => res.json())
+      .then(freshData => {
+        if (freshData.events && freshData.events.length > 0) {
+          cacheData(STORES.events, freshData.events, { source: 'network' });
+        }
+      })
+      .catch(() => {
+        // Silent fail for events (non-critical)
+      });
+
+    if (!data) return;
+
+    const now = new Date();
     allEvents = (data.events || []).filter(ev => new Date(ev.end) >= now);
 
     allEvents.forEach(ev => {
@@ -188,7 +561,7 @@ async function loadEvents() {
       ev._marker = m;
     });
   } catch (e) {
-    console.warn('events.json not loaded (optional):', e.message);
+    console.warn('[UniMap] Events load failed (optional):', e.message);
   }
 }
 
@@ -198,23 +571,23 @@ function buildEventPopupHTML(ev) {
   const timeStr = start.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
   return `
     <strong>📅 ${escapeHTML(ev.title)}</strong><br>
-    <span style="color:#6B8CAE;font-size:12px">${dateStr} · ${timeStr}</span>
+    <span style="color:#6B6B6F;font-size:12px">${dateStr} · ${timeStr}</span>
     ${ev.description ? `<p style="margin-top:6px;font-size:13px">${escapeHTML(ev.description)}</p>` : ''}
   `;
 }
 
 /* ════════════════════════════════
-   POPUP BUILDER (indoor desc, accessibility, safety, report)
+   POPUP BUILDER
    ════════════════════════════════ */
 function buildPopupHTML(feature) {
   const { Name, category, indoorDescription, accessibility, safety } = feature.properties;
   const cfg = CATEGORIES[category] || CATEGORIES.other;
 
   let html = `<strong>${cfg.icon} ${escapeHTML(Name)}</strong>`;
-  html += `<br><span style="color:${cfg.color};font-size:11.5px;font-weight:600">${cfg.label}${safety ? ' · Safety Point' : ''}</span>`;
+  html += `<br><span style="color:${cfg.color};font-size:11px;font-weight:600">${cfg.label}${safety ? ' · Safety Point' : ''}</span>`;
 
   if (indoorDescription) {
-    html += `<p style="margin-top:6px;font-size:12.5px;color:#1E3A5F">${escapeHTML(indoorDescription)}</p>`;
+    html += `<p style="margin-top:6px;font-size:12px;color:#1D1D1F">${escapeHTML(indoorDescription)}</p>`;
   }
 
   if (accessibility && accessibility.length) {
@@ -222,7 +595,7 @@ function buildPopupHTML(feature) {
     html += `<div style="margin-top:8px">${tags}</div>`;
   }
 
-  html += `<button class="popup-report-btn" onclick="reportIssue('${escapeAttr(Name)}')">⚠️ Report an issue here</button>`;
+  html += `<button class="popup-report-btn" onclick="reportIssue('${escapeAttr(Name)}')">⚠️ Report issue</button>`;
   return html;
 }
 
@@ -231,12 +604,13 @@ function escapeHTML(str) {
   d.textContent = str ?? '';
   return d.innerHTML;
 }
+
 function escapeAttr(str) {
   return (str ?? '').replace(/'/g, "\\'");
 }
 
 /* ════════════════════════════════
-   REPORT AN ISSUE (Phase 1 stopgap — no backend yet)
+   REPORT AN ISSUE
    ════════════════════════════════ */
 function reportIssue(placeName) {
   const subject = encodeURIComponent(`UniMap Issue Report: ${placeName || 'General'}`);
@@ -245,7 +619,7 @@ function reportIssue(placeName) {
     userLocation ? `My current coordinates: ${userLocation[0].toFixed(6)}, ${userLocation[1].toFixed(6)}` : '',
     `Reported at: ${new Date().toLocaleString('en-NG')}`,
     '',
-    'Describe the issue (wrong pin location, missing pin, broken route, accessibility problem, safety concern, etc.):',
+    'Describe the issue (wrong pin, missing location, broken route, accessibility, safety concern, etc.):',
     ''
   ].filter(Boolean).join('%0D%0A');
   window.location.href = `mailto:${REPORT_EMAIL}?subject=${subject}&body=${bodyLines}`;
@@ -288,23 +662,19 @@ function toggleCategory(key, btn) {
   allLocations.forEach(f => {
     const cat = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
     const show = !activeCategory || cat === activeCategory;
-    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
+    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.5 : 0 });
   });
 
-  // Show/refresh the suggestion list for the new filter state
   renderSuggestions();
 }
 
-/* Clears the active category filter — called once a navigation session
-   wraps up (arrival or cancel), so the next search starts unfiltered
-   rather than silently staying scoped to whatever was picked before. */
 function resetCategoryFilter() {
   activeCategory = null;
   document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
   restoreDefaultMarkers();
 }
 
-/* ════════════════════════════════
+/* ═════════������═════════════════════
    POPULAR CHIPS
    ════════════════════════════════ */
 function buildChips() {
@@ -316,7 +686,7 @@ function buildChips() {
     const btn = document.createElement('button');
     btn.className = 'chip';
     btn.textContent = POPULAR_LABELS[name] || name;
-    btn.style.animationDelay = `${i * 32}ms`;
+    btn.style.animationDelay = `${i * 30}ms`;
     btn.addEventListener('click', () => selectLocation(loc));
     wrap.appendChild(btn);
   });
@@ -339,7 +709,6 @@ function renderSuggestions() {
   const q = searchInput.value.trim().toLowerCase();
   clearBtn.classList.toggle('visible', q.length > 0);
 
-  // Popular places only make sense with no active filter and no query
   $('popularWrap').style.display = (q || activeCategory) ? 'none' : 'block';
 
   let hits = allLocations;
@@ -352,8 +721,10 @@ function renderSuggestions() {
 
   suggestions.innerHTML = '';
 
-  // Nothing to show: no query and no category selected
-  if (!q && !activeCategory) { suggestions.classList.remove('open'); return; }
+  if (!q && !activeCategory) {
+    suggestions.classList.remove('open');
+    return;
+  }
 
   if (!hits.length) {
     suggestions.classList.add('open');
@@ -362,11 +733,11 @@ function renderSuggestions() {
   }
 
   suggestions.classList.add('open');
-  const limit = q ? 8 : hits.length; // full category list when browsing, capped when searching
+  const limit = q ? 8 : hits.length;
   hits.slice(0, limit).forEach((feature, i) => {
     const cfg = CATEGORIES[feature.properties.category] || CATEGORIES.other;
     const li = document.createElement('li');
-    li.style.animationDelay = `${Math.min(i, 12) * 28}ms`;
+    li.style.animationDelay = `${Math.min(i, 12) * 25}ms`;
     li.innerHTML = `
       <div class="sug-dot" style="color:${cfg.color};background:${cfg.color}1A">${cfg.icon}</div>
       <span>${escapeHTML(feature.properties.Name)}${feature.properties.safety ? ' <span class="safety-badge">safety</span>' : ''}</span>
@@ -401,7 +772,7 @@ function restoreDefaultMarkers() {
   allLocations.forEach(f => {
     const cat = CATEGORIES[f.properties.category] ? f.properties.category : 'other';
     const show = !activeCategory || cat === activeCategory;
-    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.55 : 0 });
+    f._marker?.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? 0.5 : 0 });
   });
 }
 
@@ -412,20 +783,24 @@ function showMarker(feature) {
 
 /* ════════════════════════════════
    SELECT LOCATION
-   ════════════════════════════════ */
+   ════════════════════���═══════════ */
 function selectLocation(feature) {
   selectedLoc = feature;
   const [lng, lat] = feature.geometry.coordinates;
   showMarker(feature);
   map.flyTo([lat, lng], 18, { duration: 0.9, easeLinearity: 0.25 });
+  
+  const cfg = CATEGORIES[feature.properties.category] || CATEGORIES.other;
   $('destLabel').textContent = feature.properties.Name;
+  $('destCategory').textContent = cfg.label;
+  
   resetSearch();
   setState('location');
 }
 
 $('navBackBtn').addEventListener('click', () => {
   selectedLoc = null;
-  restoreDefaultMarkers(); // respects the active category filter, if any
+  restoreDefaultMarkers();
   setState('default');
 });
 
@@ -434,7 +809,14 @@ $('navBackBtn').addEventListener('click', () => {
    ════════════════════════════════ */
 $('navigateBtn').addEventListener('click', () => {
   if (!selectedLoc) return;
-  if (!userLocation) { toast('📍 Still finding your location…'); return; }
+  if (featuresFrozen) {
+    toast('🗺️ Navigation is only available on campus.');
+    return;
+  }
+  if (!userLocation) {
+    toast('📍 Still finding your location…');
+    return;
+  }
   const [lng, lat] = selectedLoc.geometry.coordinates;
   startNav([lat, lng]);
 });
@@ -455,12 +837,15 @@ function startNav(dest) {
       profile: 'foot'
     }),
     lineOptions: {
-      styles: [{ color: '#2563EB', weight: 5, opacity: 0.9 }]
+      styles: [{ color: '#FF6B3D', weight: 5, opacity: 0.85 }]
     },
     createMarker: () => null
   }).addTo(map);
 
-  routingControl.on('routesfound', () => checkArrival(dest));
+  routingControl.on('routesfound', (e) => {
+    updateNavInfo(e.routes[0]);
+    checkArrival(dest);
+  });
   routingControl.on('routingerror', () => {
     toast('⚠️ Could not find a route. Check your connection.');
     isNavigating = false;
@@ -469,8 +854,19 @@ function startNav(dest) {
   });
 }
 
+function updateNavInfo(route) {
+  const distance = Math.round(route.summary.totalDistance);
+  const time = Math.round(route.summary.totalTime / 60);
+  
+  $('navDistance').textContent = `${distance > 1000 ? (distance/1000).toFixed(1) : distance}${distance > 1000 ? 'km' : 'm'}`;
+  $('navTime').textContent = `${time} min`;
+}
+
 function clearRoute() {
-  if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+  if (routingControl) {
+    map.removeControl(routingControl);
+    routingControl = null;
+  }
 }
 
 $('cancelNavBtn').addEventListener('click', () => {
@@ -481,7 +877,7 @@ $('cancelNavBtn').addEventListener('click', () => {
 });
 
 /* ════════════════════════════════
-   ARRIVAL CHECK — runs off the GPS watcher, not its own timer
+   ARRIVAL CHECK
    ════════════════════════════════ */
 let arrivalDest = null;
 function checkArrival(dest) {
@@ -508,9 +904,17 @@ function trackUser() {
   navigator.geolocation.watchPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       userLocation = [lat, lng];
+      
+      // Check geofence on location update
+      checkGeofence(userLocation);
+      
       if (!userMarker) {
         userMarker = L.circleMarker([lat, lng], {
-          radius: 10, fillColor: '#3B82F6', color: '#fff', weight: 3, fillOpacity: 1
+          radius: 10,
+          fillColor: '#FF6B3D',
+          color: '#fff',
+          weight: 3,
+          fillOpacity: 1
         }).addTo(map).bindPopup('📍 You are here');
         map.setView([lat, lng], 17);
       } else {
@@ -527,7 +931,7 @@ function trackUser() {
     err => {
       console.warn('Geolocation error:', err.message);
       if (err.code === err.PERMISSION_DENIED) {
-        toast('📍 Location access denied — enable it in your browser settings to navigate.');
+        toast('📍 Enable location in browser settings to navigate.');
       }
     },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
@@ -538,21 +942,28 @@ function trackUser() {
    I'M LOST
    ════════════════════════════════ */
 lostBtn.addEventListener('click', () => {
-  if (!userLocation) { toast("📍 Still finding your location…"); return; }
+  if (!userLocation) {
+    toast("📍 Still finding your location…");
+    return;
+  }
   if (!RSU_BOUNDS.contains(userLocation)) {
-    toast("📍 You appear to be off-campus — can't pinpoint a nearby landmark.");
+    toast("📍 You're off-campus — can't find a nearby landmark.");
     return;
   }
   let nearest = null, minD = Infinity;
   allLocations.forEach(f => {
     const [lng, lat] = f.geometry.coordinates;
     const d = dist(userLocation, [lat, lng]);
-    if (d < minD) { minD = d; nearest = f; }
+    if (d < minD) {
+      minD = d;
+      nearest = f;
+    }
   });
   if (nearest) {
-    toast(`📍 Nearest: ${nearest.properties.Name} (${Math.round(minD)}m)`);
+    const distance = minD > 1000 ? (minD/1000).toFixed(1) + 'km' : Math.round(minD) + 'm';
+    toast(`📍 Nearest: ${nearest.properties.Name} (${distance})`);
     map.flyTo(userLocation, 17);
-    setTimeout(() => selectLocation(nearest), 2200);
+    setTimeout(() => selectLocation(nearest), 2000);
   }
 });
 
@@ -565,7 +976,7 @@ function toast(msg) {
   el.querySelector('.toast-msg').textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3400);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
 }
 
 /* ════════════════════════════════
@@ -574,7 +985,7 @@ function toast(msg) {
 function watchOffline() {
   const bar = $('offlineBar');
   window.addEventListener('offline', () => bar.classList.add('show'));
-  window.addEventListener('online',  () => bar.classList.remove('show'));
+  window.addEventListener('online', () => bar.classList.remove('show'));
   if (!navigator.onLine) bar.classList.add('show');
 }
 
@@ -591,7 +1002,7 @@ function dist([lat1, lon1], [lat2, lon2]) {
 /* ════════════════════════════════
    THEME (system / light / dark)
    ════════════════════════════════ */
-const THEME_KEY   = 'unimap-theme-pref';
+const THEME_KEY = 'unimap-theme-pref';
 const THEME_ORDER = ['system', 'light', 'dark'];
 const THEME_ICONS = { system: '🖥️', light: '☀️', dark: '🌙' };
 const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -623,8 +1034,72 @@ $('themeToggleBtn')?.addEventListener('click', () => {
 });
 
 /* ════════════════════════════════
-   BOOT
+   LOCATION PERMISSION HANDLERS (Event Delegation)
    ════════════════════════════════ */
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.btn-enable-location')) {
+    const prompt = $('locationPrompt');
+    prompt.classList.add('hidden');
+    prompt.style.display = 'none';
+    trackUser();
+  }
+  if (e.target.closest('.btn-skip-location')) {
+    const prompt = $('locationPrompt');
+    prompt.classList.add('hidden');
+    prompt.style.display = 'none';
+    toast('📍 Location skipped. You can enable it anytime via the map.');
+  }
+});
+
+/* ════════════════════════════════
+   GEOFENCE EVENT LISTENERS
+   ════════════════════════════════ */
+if (retryLocationBtn) {
+  retryLocationBtn.addEventListener('click', () => {
+    if (userLocation) {
+      checkGeofence(userLocation);
+    } else {
+      toast('📍 Checking your location...');
+    }
+  });
+}
+
+const viewCampusBtn = document.querySelector('.btn-view-campus-map');
+if (viewCampusBtn) {
+  viewCampusBtn.addEventListener('click', () => {
+    hideGeofenceModal();
+    toast('📍 Map is in read-only mode. Move onto campus to unlock navigation.');
+  });
+}
+
+/* ════════════════════════════════
+   BOOT - Optimized startup sequence
+   ════════════════════════════════ */
+
+// Show loading skeleton while preparing
+const skeleton = $('loadingSkeleton');
+if (skeleton) {
+  skeleton.classList.remove('hidden');
+}
+
+// Start UI immediately
 initTheme();
-initMap();
+setupNetworkDetection();
 setState('default');
+
+// Show network status if offline
+if (!navigator.onLine) {
+  showNetworkBanner(true);
+}
+
+// Initialize map asynchronously (won't block)
+initMap()
+  .then(() => {
+    startGeofenceMonitoring();
+    // Skeleton will be hidden by initMap when ready
+  })
+  .catch((err) => {
+    console.error('[UniMap] Boot failed:', err);
+    if (skeleton) skeleton.classList.add('hidden');
+    toast('Failed to load map - please refresh');
+  });
