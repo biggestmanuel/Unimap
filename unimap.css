@@ -80,6 +80,53 @@ html, body {
   font-family: var(--body);
 }
 
+.leaflet-control-container .leaflet-routing-container {
+  position: fixed !important;
+  left: 16px;
+  right: 16px;
+  bottom: 92px;
+  width: auto !important;
+  max-width: 380px;
+  max-height: min(62vh, 460px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+  z-index: 260;
+  pointer-events: auto;
+}
+
+.leaflet-routing-container,
+.leaflet-routing-error {
+  color: var(--text);
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.leaflet-routing-alt,
+.leaflet-routing-geocoders,
+.leaflet-routing-error {
+  max-height: min(46vh, 360px);
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.leaflet-routing-alt table {
+  width: 100%;
+}
+
+.leaflet-routing-alt tr:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.leaflet-routing-container h2,
+.leaflet-routing-container h3 {
+  color: var(--text);
+}
+
 /* ═══════════════════════════════
    LOADING SKELETON
    ═══════════════════════════════ */
@@ -180,6 +227,15 @@ button {
   justify-content: center;
 }
 
+button:focus-visible,
+input:focus-visible,
+.search-trigger:focus-visible,
+.back-btn:focus-visible,
+.theme-toggle-btn:focus-visible {
+  outline: 3px solid rgba(96, 165, 250, 0.9);
+  outline-offset: 3px;
+}
+
 input {
   font-family: var(--body);
   border: none;
@@ -236,17 +292,19 @@ input {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--surface);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
   border: 1px solid var(--border);
   padding: 14px 16px;
   border-radius: 12px;
   transition: all 0.2s var(--ease);
   cursor: pointer;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .search-trigger:hover {
   background: var(--gray-light);
   border-color: var(--accent);
+  box-shadow: 0 14px 30px rgba(59, 130, 246, 0.08);
 }
 
 .search-trigger:active {
@@ -280,8 +338,9 @@ input {
   position: fixed;
   bottom: 100px;
   right: 20px;
-  width: 50px;
+  min-width: 50px;
   height: 50px;
+  padding: 0 16px;
   border-radius: 12px;
   background: var(--accent);
   color: white;
@@ -291,16 +350,17 @@ input {
   justify-content: center;
   transition: all 0.2s var(--ease);
   z-index: 150;
-  gap: 6px;
+  gap: 8px;
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.22);
 }
 
 .lost-btn:hover {
   background: var(--accent-hover);
-  transform: scale(1.05);
+  transform: translateY(-1px) scale(1.02);
 }
 
 .lost-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.98);
 }
 
 .lost-btn.hidden {
@@ -309,6 +369,9 @@ input {
 
 .lost-btn span {
   display: none;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 /* ─────────────────────────────
@@ -668,11 +731,13 @@ input {
   border: 1px solid var(--border);
   font-size: 18px;
   transition: all 0.2s var(--ease);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
 }
 
 .theme-toggle-btn:hover {
   background: var(--gray-light);
   border-color: var(--accent);
+  transform: translateY(-1px);
 }
 
 /* ═══════════════════════════════
@@ -721,6 +786,7 @@ input {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.18);
 }
 
 .offline-bar.visible {
@@ -950,6 +1016,13 @@ input {
     font-size: 13px;
   }
 
+  .lost-btn {
+    right: 12px;
+    bottom: 94px;
+    min-width: 48px;
+    padding: 0 12px;
+  }
+
   .theme-toggle-btn {
     width: 36px;
     height: 36px;
@@ -976,6 +1049,12 @@ input {
 
   .suggestions .loc-name {
     font-size: 13px;
+  }
+}
+
+@media (min-width: 481px) {
+  .lost-btn span {
+    display: inline;
   }
 }
 

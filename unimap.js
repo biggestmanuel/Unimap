@@ -353,13 +353,19 @@ function unlockFeatures() {
  */
 function startGeofenceMonitoring() {
   if (geofenceCheckTimer) clearInterval(geofenceCheckTimer);
-  
+
   // Only check actively when navigating or when location changes significantly
-  let lastCheckLocation = userLocation;
+  let lastCheckLocation = userLocation ? [...userLocation] : null;
   const CHECK_DISTANCE_M = 30; // Only recheck if moved 30+ meters
 
   geofenceCheckTimer = setInterval(() => {
     if (!userLocation) return;
+
+    if (!lastCheckLocation) {
+      lastCheckLocation = [...userLocation];
+      checkGeofence(userLocation);
+      return;
+    }
 
     // Calculate distance from last check
     const R = 6371000; // Earth radius in meters
@@ -374,7 +380,7 @@ function startGeofenceMonitoring() {
     // Only recheck if moved significantly
     if (distance > CHECK_DISTANCE_M || isNavigating) {
       checkGeofence(userLocation);
-      lastCheckLocation = userLocation;
+      lastCheckLocation = [...userLocation];
     }
   }, 5000); // Check every 5s instead of 10s, but with smart gating
 }
@@ -984,9 +990,16 @@ function toast(msg) {
    ════════════════════════════════ */
 function watchOffline() {
   const bar = $('offlineBar');
-  window.addEventListener('offline', () => bar.classList.add('show'));
-  window.addEventListener('online', () => bar.classList.remove('show'));
-  if (!navigator.onLine) bar.classList.add('show');
+  if (!bar) return;
+
+  window.addEventListener('offline', () => {
+    bar.classList.add('visible');
+    bar.setAttribute('aria-live', 'polite');
+  });
+  window.addEventListener('online', () => {
+    bar.classList.remove('visible');
+  });
+  if (!navigator.onLine) bar.classList.add('visible');
 }
 
 /* ════════════════════════════════
