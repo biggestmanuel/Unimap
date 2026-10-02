@@ -148,8 +148,16 @@ export function parseOverpass(json, { bbox = CAMPUS_BBOX } = {}) {
  * Connectivity report for a parsed edge set. Used by the import script and by
  * the validation tooling to tell you what is unreachable before you route on
  * it.
+ *
+ * Lengths are measured from `coords` rather than trusted from the caller:
+ * edges loaded back out of the database or out of walk-graph.json carry only
+ * coordinates, and a missing length silently turns every total into NaN.
  */
 export function analyseConnectivity(edges) {
+  const metres = new Map();
+  for (const e of edges) {
+    metres.set(e, lineLengthMeters(e.coords ?? []));
+  }
   const parent = new Map();
   const key = (p) => `${p.lat.toFixed(7)},${p.lng.toFixed(7)}`;
 
@@ -184,7 +192,7 @@ export function analyseConnectivity(edges) {
 
   const islands = list.slice(1).map((g) => ({
     ways: g.length,
-    meters: g.reduce((s, e) => s + e.lengthMeters, 0),
+    meters: g.reduce((s, e) => s + metres.get(e), 0),
     names: [...new Set(g.map((e) => e.name).filter(Boolean))],
     edgeClasses: [...new Set(g.map((e) => e.edgeClass))],
     osmIds: g.map((e) => e.osmId),
@@ -206,16 +214,17 @@ export function analyseConnectivity(edges) {
     totalWays: edges.length,
     groups: list.length,
     mainWays: mainIds.size,
-    routableMeters: routable.reduce((s, e) => s + e.lengthMeters, 0),
-    totalMeters: edges.reduce((s, e) => s + e.lengthMeters, 0),
+    routableMeters: routable.reduce((s, e) => s + metres.get(e), 0),
+    totalMeters: edges.reduce((s, e) => s + metres.get(e), 0),
     byClass: ['corridor', 'footpath'].map((cls) => {
       const set = edges.filter((e) => e.edgeClass === cls);
+      const total = set.reduce((s, e) => s + metres.get(e), 0);
       return {
         edgeClass: cls,
         ways: set.length,
-        meters: set.reduce((s, e) => s + e.lengthMeters, 0),
+        meters: total,
         routableMeters: set.filter((e) => mainIds.has(e.osmId))
-          .reduce((s, e) => s + e.lengthMeters, 0),
+          .reduce((s, e) => s + metres.get(e), 0),
       };
     }),
     islands,
@@ -251,11 +260,21 @@ export async function fetchOverpass(bbox = CAMPUS_BBOX, { timeoutMs = 180000, mi
         failures.push(`${url} -> no elements array`);
         continue;
       }
+      // An empty result is not a valid answer. A mirror that is quietly
+      // rate-limiting returns 200 with nothing in it, and accepting that
+      // would silently empty the graph. Treat it as a failure and move on.
+      if (json.elements.length === 0) {
+        failures.push(`${url} -> 0 elements (rate limited?)`);
+        continue;
+      }
       return json;
     } catch (err) {
       failures.push(`${url} -> ${err.message}`);
     }
   }
 
-  throw new Error(`All Overpass mirrors failed: ${failures.join('; ')}`);
+  throw new Error(
+    `All Overpass mirrors failed: ${failures.join('; ')}. `
+    + 'Refusing to treat an empty result as "no roads exist".',
+  );
 }

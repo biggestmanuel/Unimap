@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Admin console. Separate entry, separate bundle, and deliberately NOT
+      registered with the service worker: this is not something to install on
+      a phone or precache for offline use.
+    -->
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>UniMap Admin</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  </head>
+  <body>
+    <div id="admin-root"></div>
+    <script type="module" src="/src/admin/main.jsx"></script>
+  </body>
+</html>

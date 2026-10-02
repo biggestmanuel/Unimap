@@ -32,6 +32,12 @@ const lngLat = z.object({
   lat: z.number().min(-90).max(90),
 });
 
+/** The same thing as a positional pair, for array-shaped payloads. */
+const lngLatPair = z.tuple([
+  z.number().min(-180).max(180),
+  z.number().min(-90).max(90),
+]);
+
 export const listPoisQuery = z.object({
   q: z.string().trim().min(1).max(120).optional(),
   category: z.enum(CATEGORIES).optional(),
@@ -115,6 +121,80 @@ export const reviewCorrectionSchema = z.object({
   status: z.enum(['approved', 'rejected']),
   note: z.string().trim().max(1000).optional(),
   reviewer: z.string().trim().min(1).max(200),
+});
+
+/**
+ * A point on the map, or a reference to a seeded POI.
+ *
+ * Accepting either matters in practice: the app sends a POI id when the user
+ * taps a marker and a raw GPS fix when they are already standing there.
+ */
+export const routeEndpointSchema = z.union([
+  lngLat,
+  z.object({ poiId: z.string().uuid() }).strict(),
+]);
+
+export const routeSchema = z.object({
+  from: routeEndpointSchema,
+  to: routeEndpointSchema,
+  /**
+   * How far from a path we will still route. Tight by default: snapping
+   * something 200 m onto a road produces confident nonsense.
+   */
+  maxSnapMeters: z.number().min(1).max(200).default(50),
+  walkSpeedMps: z.number().min(0.5).max(3).default(1.35),
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+  password: z.string().min(1).max(200),
+});
+
+/**
+ * Admin user creation.
+ *
+ * Only reachable by an authenticated admin, so there is no separate
+ * "invite code" flow — but the role is constrained by the enum rather than
+ * by trusting the client to send 'student'.
+ */
+export const createUserSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+  displayName: z.string().trim().min(1).max(200).optional(),
+  role: z.enum(['student', 'admin']).default('student'),
+  password: z.string().min(10, 'use at least 10 characters').max(200),
+});
+
+/**
+ * A student-submitted walk trace.
+ *
+ * Points are [lng, lat] to match the rest of the API. Bounds are enforced
+ * here because a trace is the one submission large enough to be a real
+ * denial-of-service risk: unbounded input here would be a few megabytes of
+ * JSON per request.
+ */
+export const traceSchema = z.object({
+  points: z
+    .array(lngLatPair)
+    .min(2, 'a trace needs at least two points')
+    .max(20000, 'that trace is too long'),
+  note: z.string().trim().max(500).optional(),
+  reporterDevice: z.string().trim().max(100).optional(),
+});
+
+export const listTracesQuery = z.object({
+  status: z.enum(['pending', 'approved', 'rejected', 'merged']).default('pending'),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const reviewTraceSchema = z.object({
+  status: z.enum(['approved', 'rejected', 'merged']),
+  note: z.string().trim().max(1000).optional(),
+  reviewer: z.string().trim().min(1).max(200),
+});
+
+export const graphStatsQuery = z.object({
+  /** Include the per-island breakdown, which is the useful bit. */
+  islands: z.enum(['true', 'false']).default('true'),
 });
 
 /** Flatten a ZodError into a stable { field: message } map for JSON output. */

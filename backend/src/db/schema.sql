@@ -83,6 +83,26 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
+-- ── Sessions ──────────────────────────────────────────────────────────
+-- Server-side and revocable, rather than a stateless JWT: an admin account
+-- must be killable immediately, and the admin panel is low-traffic enough
+-- that a lookup per request costs nothing.
+--
+-- Only the SHA-256 of the token is stored, so a database leak does not hand
+-- over live sessions.
+CREATE TABLE IF NOT EXISTS sessions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES users(id) ON CASCADE,
+  token_hash  text NOT NULL UNIQUE,
+  user_agent  text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  expires_at  timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
+-- Supports the sweep that deletes expired rows.
+CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions (expires_at);
+
 -- ── Audit trail ─────────────────────────────────────────────────────
 -- Append-only. Who changed what, and when, for campus data corrections.
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -122,6 +142,43 @@ CREATE INDEX IF NOT EXISTS graph_edges_geom_gix ON graph_edges USING gist (geom)
 -- A footpath is only usable if it meets the network twice; enforcement
 -- happens in the router, but this index makes the query cheap.
 CREATE INDEX IF NOT EXISTS graph_edges_class_idx ON graph_edges (edge_class);
+
+-- ── Student walk traces ─────────────────────────────────────────────
+-- Recorded on a phone when the app notices the user is walking somewhere
+-- the graph does not cover -- "you are not on any edge".
+--
+-- These are *proposals*, like corrections: nothing here mutates graph_edges
+-- until an admin approves it. Raw traces are noisy (tunnel drift, GPS
+-- jitter, someone walking in circles), so the geometry is kept exactly as
+-- submitted and the review step is where it gets cleaned up.
+CREATE TABLE IF NOT EXISTS walk_traces (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  geom          geometry(LineString, 4326) NOT NULL,
+  point_count   int NOT NULL,
+  distance_m    numeric(10,2),
+
+  -- How far the user was from the graph while recording. Large values mean
+  -- the trace was captured precisely because the path was missing, which is
+  -- what makes those worth reviewing first.
+  max_off_graph_m numeric(8,2),
+
+  reporter_device text,
+  note           text,
+
+  status        text NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'approved', 'rejected', 'merged')),
+  reviewed_by   text,
+  reviewed_at   timestamptz,
+  review_note   text,
+
+  created_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT walk_traces_not_empty CHECK (ST_NPoints(geom) >= 2),
+  CONSTRAINT walk_traces_points_sane CHECK (point_count >= 2 AND point_count <= 20000)
+);
+
+CREATE INDEX IF NOT EXISTS walk_traces_geom_gix ON walk_traces USING gist (geom);
+CREATE INDEX IF NOT EXISTS walk_traces_queue_idx ON walk_traces (status, created_at DESC);
 
 -- ── Triggers ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger AS $$

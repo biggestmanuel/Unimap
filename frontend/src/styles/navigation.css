@@ -1,0 +1,471 @@
+/*
+ * Navigation, offline and admin-panel styles.
+ * Appended after the Phase 1 styles so the cascade order stays predictable.
+ */
+
+/* ── Buttons ─────────────────────────────────────────────────────────── */
+.btn {
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 9px 16px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn--icon {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sheet);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.btn--link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0 4px;
+  text-decoration: underline;
+  font-size: 13px;
+}
+
+.app__controls {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Floating action button ──────────────────────────────────────────── */
+.fab {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(96px + var(--safe-bottom));
+  z-index: 900;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.fab--secondary {
+  bottom: calc(148px + var(--safe-bottom));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sheet);
+}
+
+/* ── Notices ─────────────────────────────────────────────────────────── */
+.notice {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  right: 66px;
+  z-index: 900;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sheet);
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.notice--warn {
+  border-color: var(--warn);
+}
+
+/* ── Route panel ─────────────────────────────────────────────────────── */
+.route-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 950;
+  background: var(--surface);
+  border-top-left-radius: var(--sheet-radius);
+  border-top-right-radius: var(--sheet-radius);
+  box-shadow: var(--shadow-sheet);
+  padding: 16px 18px calc(16px + var(--safe-bottom));
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+.route-panel--loading,
+.route-panel--error {
+  padding: 18px;
+}
+
+.route-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.route-panel__eyebrow {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.route-panel__summary {
+  margin: 2px 0 0;
+  font-family: var(--display);
+  font-size: 24px;
+  color: var(--text);
+}
+
+.route-panel__summary strong {
+  font-weight: 700;
+}
+
+.route-panel__status {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.route-panel__remaining {
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.route-panel__notice {
+  margin: 8px 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.route-panel__notice--warn {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border: 1px solid var(--warn);
+  color: var(--text);
+}
+
+.route-panel__notice--good {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  border: 1px solid var(--ok);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.route-panel__legs {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.route-leg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  font-size: 14px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.route-leg:last-child {
+  border-bottom: none;
+}
+
+.route-leg__badge {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  background: var(--accent);
+}
+
+.route-leg__badge--footpath {
+  background: var(--ok);
+}
+
+.route-leg__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-leg__dist {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── User marker ─────────────────────────────────────────────────────── */
+.user-marker__dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.5);
+}
+
+/* ── Install prompt ──────────────────────────────────────────────────── */
+.install-prompt {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + var(--safe-bottom));
+  z-index: 960;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sheet);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.install-prompt__body {
+  flex: 1 1 200px;
+}
+
+.install-prompt__title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.install-prompt__text {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.install-prompt__actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Correction form ─────────────────────────────────────────────────── */
+.sheet--form {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 970;
+  background: var(--surface);
+  border-top-left-radius: var(--sheet-radius);
+  border-top-right-radius: var(--sheet-radius);
+  box-shadow: var(--shadow-sheet);
+  padding: 18px 18px calc(18px + var(--safe-bottom));
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.field {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.field__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 5px;
+}
+
+.field__label em {
+  font-weight: 400;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.field__input {
+  width: 100%;
+  font-family: var(--body);
+  font-size: 15px;
+  /* 16px would stop iOS zooming the viewport on focus. */
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+}
+
+.field__hint {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 16px;
+  margin-top: 4px;
+}
+
+.field__error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.sheet__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sheet__title {
+  margin: 0 0 14px;
+  font-family: var(--display);
+  font-size: 19px;
+  color: var(--text);
+}
+
+.sheet__text {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* ── Trace recorder ─────────────────────────────────────────────────── */
+.trace-recorder {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + var(--safe-bottom));
+  z-index: 965;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sheet);
+  padding: 14px;
+}
+
+.trace-recorder--done {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trace-recorder__msg {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.trace-recorder--done .trace-recorder__msg {
+  margin: 0;
+  flex: 1 1 200px;
+}
+
+.trace-recorder__error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.trace-recorder__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────── */
+/*
+  Applied via [data-theme="dark"] on <html> rather than prefers-color-scheme
+  alone, so the explicit in-app toggle wins over the OS setting.
+*/
+[data-theme='dark'] {
+  --bg: #0b1220;
+  --surface: #111c30;
+  --text: #e8eef7;
+  --muted: #93a4bd;
+  --border: #263449;
+  --border-subtle: #1d293c;
+  --accent: #3b82f6;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --danger: #f87171;
+  --shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Leaflet paints its own chrome, so the tiles and controls need nudging. */
+[data-theme='dark'] .leaflet-tile-pane {
+  /* A slight dim keeps the white OSM tiles from glaring at night. */
+  filter: brightness(0.72) invert(1) contrast(0.86) hue-rotate(180deg);
+}
+
+[data-theme='dark'] .leaflet-control-attribution {
+  background: rgba(17, 28, 48, 0.85);
+  color: var(--muted);
+}
+
+[data-theme='dark'] .leaflet-control-attribution a {
+  color: var(--text);
+}
+
+/* POI markers and popups. */
+[data-theme='dark'] .leaflet-popup-content-wrapper,
+[data-theme='dark'] .leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--text);
+}

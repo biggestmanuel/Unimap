@@ -1,0 +1,294 @@
+/* Admin console. Plain and deliberately plain: this is an internal tool for
+   a handful of people, and it should be boring to read. */
+
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --warn: #d97706;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.admin-boot {
+  padding: 40px;
+  color: var(--muted);
+}
+
+.admin-login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.admin-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-card h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.admin-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-card input {
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.admin button {
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.admin button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button.is-danger,
+.admin button.is-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--border);
+}
+
+.admin-error {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.admin-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.admin-bar__who {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.admin-bar button {
+  background: transparent;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 20px 0;
+  flex-wrap: wrap;
+}
+
+.admin-tabs button {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 12px;
+}
+
+.admin-tabs button.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.admin-flash {
+  margin: 12px 20px 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid var(--accent);
+  font-size: 13px;
+}
+
+.admin-main {
+  padding: 16px 20px 60px;
+  max-width: 900px;
+}
+
+.admin-main h2 {
+  font-size: 17px;
+  margin: 12px 0 4px;
+}
+
+.admin-main h3 {
+  font-size: 14px;
+  margin: 22px 0 6px;
+  color: var(--muted);
+}
+
+.admin-hint {
+  margin: 4px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+.admin-hint code {
+  background: var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.admin-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.admin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.admin-item__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.admin-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.admin-badge--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.admin-item__meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.admin-item__body {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+  /* Student text can be long; keep it from stretching the layout. */
+  overflow-wrap: anywhere;
+}
+
+.admin-item__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 0 0 8px;
+}
+
+.admin-stats > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.admin-stats dt {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.admin-stats dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.admin-table th {
+  background: #f1f5f9;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.admin-table tr:last-child td { border-bottom: none; }

@@ -8,8 +8,9 @@
  * the whole update workflow.
  */
 
-import { realpathSync } from 'node:fs';
+import { realpathSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import { getPool, closePool } from '../db/pool.js';
 import {
   CAMPUS_BBOX,
@@ -86,15 +87,70 @@ function edgeName(name) {
   return name && name.trim() ? name.trim() : null;
 }
 
+/**
+ * Write the graph next to the POI data as plain JSON.
+ *
+ * This is what lets `npm run dev` route without Postgres: the API loads this
+ * file when DATABASE_URL is unset. It is also the artefact the offline PWA
+ * serves, so it has to exist independently of the database.
+ *
+ * Refuses to overwrite an existing graph with an empty one. A transient
+ * Overpass hiccup must not be able to delete a working walk graph.
+ */
+export function writeGraphJson(edges, dest) {
+  if (edges.length === 0) {
+    let existing = 0;
+    try {
+      existing = JSON.parse(readFileSync(dest, 'utf-8')).length ?? 0;
+    } catch {
+      existing = 0;
+    }
+    if (existing > 0) {
+      throw new Error(
+        `Refusing to overwrite ${dest} (${existing} existing edges) with an empty graph.`,
+      );
+    }
+  }
+
+  const rows = edges.map((e) => ({
+    osmId: e.osmId,
+    name: edgeName(e.name),
+    edgeClass: e.edgeClass,
+    surface: e.surface,
+    coords: e.coords,
+  }));
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, JSON.stringify(rows), 'utf-8');
+  return dest;
+}
+
+/** Default location: served as a static asset by the frontend. */
+export const GRAPH_JSON_PATH = fileURLToPath(
+  new URL('../../../frontend/public/data/walk-graph.json', import.meta.url),
+);
+
 // ── CLI ────────────────────────────────────────────────────────────────
 const invokedDirectly = process.argv[1]
   && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (invokedDirectly) {
-  const pool = getPool();
-  const { edges, skipped, stats } = await importGraph({ pool });
+  // The JSON is written whether or not a database is configured: it is what
+  // `npm run dev` routes from, and what the offline PWA ships.
+  const json = await fetchOverpass(CAMPUS_BBOX);
+  const { edges, skipped } = parseOverpass(json, { bbox: CAMPUS_BBOX });
+  const stats = analyseConnectivity(edges);
 
-  console.log(`imported ${edges.length} ways`);
+  const dest = writeGraphJson(edges, GRAPH_JSON_PATH);
+  console.log(`wrote ${edges.length} edges -> ${dest}`);
+
+  if (process.env.DATABASE_URL) {
+    await importGraph({ pool: getPool(), json });
+    console.log('imported into graph_edges');
+    await closePool();
+  } else {
+    console.log('DATABASE_URL not set — skipped the PostGIS import');
+  }
+
   console.log(`  skipped: ${JSON.stringify(skipped)}`);
   for (const c of stats.byClass) {
     console.log(
@@ -114,6 +170,4 @@ if (invokedDirectly) {
     }
     if (stats.islands.length > 10) console.log(`    ...and ${stats.islands.length - 10} more`);
   }
-
-  await closePool();
 }

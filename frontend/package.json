@@ -14,6 +14,7 @@
     "test:e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
+    "@babel/helpers": "^7.29.7",
     "leaflet": "^1.9.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -28,6 +29,10 @@
     "@vitest/coverage-v8": "^2.0.0",
     "jsdom": "^24.1.0",
     "vite": "^5.0.0",
+    "vite-plugin-pwa": "^0.20.0",
     "vitest": "^2.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
   }
 }

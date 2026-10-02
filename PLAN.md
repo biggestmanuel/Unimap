@@ -39,14 +39,46 @@ Items marked ✅ are done.
 - [ ] Theme toggle (S)
 - ✅ `events.json` deleted (it was an empty stub)
 
+## Phase 2 — Navigation parity ✅
+
+- ✅ A* over the walk graph, built **per-vertex** from OSM (`backend/src/graph/router.js`)
+  Per-vertex, not per-way: a branch often meets a way at a vertex interior to
+  it, and building only at way endpoints fragmented the campus into 240 pieces.
+- ✅ `POST /api/route` — accepts `{lat,lng}` or `{poiId}` at either end
+- ✅ `GET /api/graph/stats` — connectivity, islands, dead ends, per-class totals
+- ✅ Straight-line fallback, with the reason surfaced so the UI can label it
+- ✅ GPS tracking via `watchPosition`, marker moved imperatively, accuracy circle
+- ✅ Arrival detection (35 m) + off-route detection → "Re-route"
+- ✅ Theme toggle, applied pre-paint to avoid a flash
+- ⚠️ **OSRM dropped, deliberately.** RSU is ~2 km across; A* over ~1,500
+  segments is instant in-process and, unlike a self-hosted OSRM container,
+  keeps working with no network — which Phase 3 requires. The compose service
+  was also extracting with the *car* profile, which would have been wrong.
+
+## Phase 3 — Offline PWA ✅
+
+- ✅ `vite-plugin-pwa` / Workbox — the legacy SW broke on Vite hashed assets
+- ✅ IndexedDB cache (`lib/offlineCache.js`), network-first with cache fallback
+- ✅ Queued corrections flushed on reconnect; offline submissions are kept
+- ✅ `beforeinstallprompt` captured and surfaced
+- ✅ iOS-friendly install tags; storage persistence requested where supported
+- ✅ The Google Fonts link is gone — a render-blocking third-party request
+  defeats offline use. System font stack instead.
+- ⚠️ **Bundled tiles z16–19 not done, deliberately.** See `docs/TILES.md`: the
+  3–8 MB estimate was wrong, and bulk-downloading the public OSM servers for a
+  bundle violates their usage policy. Runtime caching (capped at 3,000 tiles)
+  covers the real need.
+
 ## Phase 4 — Walk graph
 
 - ✅ Overpass extraction of the existing OSM network (`backend/src/graph/overpass.js`)
   RSU is already mapped: **324 campus ways, 43.7 km corridor + 4.7 km footpath**
 - ✅ Graph build pipeline: OSM → normalised JSON → PostGIS `graph_edges`
-- ✅ Re-runnable importer (`node src/graph/importOsm.js`) — trace more footpaths,
-  re-run, done
+- ✅ Re-runnable importer (`npm run graph:import`) — trace more footpaths,
+  re-run, done. Also writes `walk-graph.json` so routing works with no database
 - ✅ Connectivity validation tooling: islands, dead ends, unreachable POIs
+- ✅ **Student trace submission** (`POST /api/traces`): offered when the user
+  is genuinely off the mapped network, sorted furthest-off-first for review
 - ⚠️ **Campus footpaths do NOT need hand-tracing.** 55 footway ways (4.7 km)
   are already mapped and 100% connected. What is needed is *verification*:
   - 41 islands — 4 need attention (32-way island + Eagle Island Road); the
@@ -55,27 +87,35 @@ Items marked ✅ are done.
   - 7 POIs sit >30 m off the network (worst: Convo Arena Field, 67 m)
 - [ ] Verify OSM footpaths match reality — **requires someone who has walked
   the campus**; imagery cannot show paths under tree cover
-- [ ] Student trace submission — "you are not on any edge" prompt (M)
 - [ ] The geofence rectangle is a crude bounding box, not the real campus
   boundary; it pulls in ~8 km of surrounding residential streets
 
-## Phase 5 — Backend + admin
+## Phase 5 — Backend + admin ✅
 
-- ✅ POI read API with PostGIS full-text search (M)
-- ✅ Corrections API: submit, list-own, moderation queue, approve/reject (M)
-- ✅ Transactional approval + audit log (M)
-- ✅ Zod validation at every boundary (S)
-- [ ] Real auth + roles. Admin routes return **501 in production** until this lands (M)
-- [ ] Admin panel UI — separate bundle, not in the student PWA payload (L)
-- [ ] User-facing correction submission UI (M)
+- ✅ POI read API with PostGIS full-text search
+- ✅ Corrections API: submit, list-own, moderation queue, approve/reject
+- ✅ Transactional approval + audit log
+- ✅ Zod validation at every boundary
+- ✅ **Real auth + roles.** scrypt password hashing, revocable server-side
+  sessions, HttpOnly cookie, role gate on every admin route. The old
+  "501 in production" placeholder is gone — it only bit under
+  `NODE_ENV=production`, which meant development was wide open.
+- ✅ **Admin panel** (`/admin.html`) — separate Vite entry, excluded from the
+  service worker precache so students never download it
+- ✅ User-facing correction submission UI, works offline via the queue
+- ✅ Bootstrap the first admin: `npm run user -- --email you@rsu.edu.ng --role admin`
 
 ## Phase 6 — Hardening
 
-- [ ] `logo.png` is 1.4 MB; needs an optimised icon set (S)
-- [ ] XSS audit once student-submitted text renders (S)
-- [ ] Playwright coverage for navigation once Phase 2 lands (M)
+- ✅ `logo.png` (1.4 MB) replaced by a generated icon set: 512/192/180/32/16
+- ✅ XSS audit — no `innerHTML`, `dangerouslySetInnerHTML` or `eval` anywhere.
+  Findings and the rules that keep it that way: `docs/SECURITY.md`
+- ✅ Playwright coverage for navigation (12 specs: theme, geolocation, routing,
+  fallback labelling, corrections, XSS payload)
+- ⚠️ **Tile policy still needs a decision** — see `docs/TILES.md`
+- ⚠️ **No rate limiting** on the public `/api/traces` and `/api/corrections`
+  endpoints. Needs a reverse proxy or a token bucket before real traffic.
 - [ ] Field test on real devices over Glo data (manual)
-- [ ] OSM/Esri tile usage policy review before real traffic (S)
 
 ---
 
@@ -95,19 +135,58 @@ Items marked ✅ are done.
    - 7 POIs total sit beyond 30 m from any way
 
 3. **Field test on your phone over Glo data.** Disable wifi, load the app,
-   tap Engineering Block, confirm a marker appears and search works.
+   tap Engineering Block, confirm a marker appears and search works. Then:
+   - install it from the prompt and confirm it opens standalone
+   - ask for directions while offline and confirm the route still draws
+   - report a problem while offline, then reconnect and confirm it sends
    This is the go/no-go gate for everything after it.
 
 4. **Hand-verify the 79 seeded POI coordinates** before students file
    corrections against them. 72 are within 30 m of a real path, so most are
    fine; the 7 flagged above are not.
 
-5. **Deploy PostGIS** and run `node src/graph/importOsm.js` to populate
-   `graph_edges`. No OSRM container is needed — the router is in-process.
+5. **Deploy PostGIS**, then `npm run migrate`, `npm run seed`,
+   `npm run graph:import` to populate `graph_edges`, and
+   `npm run user -- --email you@rsu.edu.ng --role admin`.
+   No OSRM container is needed — the router is in-process.
 
-6. **Decide admin auth.** Right now `/api/admin/*` returns 501 under
-   `NODE_ENV=production`, which is deliberate — it is closed rather than
-   open.
+6. **Decide the tile source** — `docs/TILES.md`. Self-hosted is the only
+   option that is both policy-safe and guaranteed to work offline.
+
+7. **Put rate limiting in front of the API** before real traffic. Two
+   endpoints are intentionally public.
+
+---
+
+## Bugs found and fixed by testing against real data
+
+Recorded because each one would have shipped silently, and each was only
+caught by running against live OSM data or real HTTP rather than fixtures.
+
+- **Graph built at way endpoints instead of vertices.** OSM branches routinely
+  meet a way at a vertex interior to it. Building only at endpoints fragmented
+  one 241-way network into **240 components**, and every single route fell back
+  to a straight line. Fixed; there is now a test that pins the behaviour down.
+- **Same-segment routes reported 0 m.** Both snaps landing mid-way on one way
+  made A* hit `start === goal` and skip all partial-edge cost.
+- **`haversineMeters` returned degrees, not metres**, in the first audit
+  script — every length printed as `0 m`.
+- **An empty Overpass response was accepted as valid**, and the importer then
+  overwrote a working `walk-graph.json` with an empty one. Both fixed: an empty
+  result is now a mirror failure, and the writer refuses to clobber.
+- **`meters: null` in `/api/graph/stats`.** `assembleGraph` built edges without
+  `lengthMeters`, so connectivity totals were `NaN` and serialised as `null`.
+- **`POST /api/admin/users` returned the password hash.** Caught by its own
+  test; every user-returning route now goes through `publicUser()`.
+- **An oversized body returned 500, not 413**, because body-parser errors fell
+  through the generic handler — telling a caller their malformed request was
+  our outage.
+- **Trace points read as objects when they are tuples**, so `p.lat` was
+  `undefined` for every point and every trace was rejected as "does not move".
+- **Selecting a POI offered no way to ask for directions** — the whole
+  navigation feature was unreachable from the UI. Found by an e2e test.
+- **`remainingMeters` returned 0 at the start of a route**, because the
+  scan-forward loop broke on the very first vertex.
 
 ---
 

@@ -1,4 +1,5 @@
 import { getPool, rowToPoi } from './pool.js';
+import { verifyPassword } from '../lib/auth.js';
 
 /**
  * Postgres repository.
@@ -199,6 +200,178 @@ export function createPostgresRepo() {
       } finally {
         client.release();
       }
+    },
+
+    // ── auth ──────────────────────────────────────────────────────────
+    async findUserByEmail(email) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        'SELECT id, email, display_name, role, password_hash FROM users WHERE lower(email) = lower($1)',
+        [email],
+      );
+      return rows[0] ?? null;
+    },
+
+    async getUser(id) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        'SELECT id, email, display_name, role FROM users WHERE id = $1',
+        [id],
+      );
+      return rows[0] ?? null;
+    },
+
+    async createUser({ email, displayName, role, passwordHash }) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `INSERT INTO users (email, display_name, role, password_hash)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, email, display_name, role`,
+        [String(email).toLowerCase(), displayName ?? null, role ?? 'student', passwordHash],
+      );
+      return rows[0];
+    },
+
+    async listUsers() {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `SELECT u.id, u.email, u.display_name, u.role, u.created_at,
+                count(s.id)::int AS active_sessions
+           FROM users u
+           LEFT JOIN sessions s
+             ON s.user_id = u.id AND s.expires_at > now()
+          GROUP BY u.id
+          ORDER BY u.created_at DESC`,
+      );
+      return rows;
+    },
+
+    async verifyUserPassword(id, password) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        'SELECT password_hash FROM users WHERE id = $1',
+        [id],
+      );
+      if (!rows[0]) return false;
+      return verifyPassword(password, rows[0].password_hash);
+    },
+
+    async createSession({ userId, tokenHash, expiresAt, userAgent }) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `INSERT INTO sessions (user_id, token_hash, expires_at, user_agent)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [userId, tokenHash, expiresAt, userAgent ?? null],
+      );
+      return rows[0];
+    },
+
+    async findSessionByTokenHash(tokenHash) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        'SELECT * FROM sessions WHERE token_hash = $1',
+        [tokenHash],
+      );
+      return rows[0] ?? null;
+    },
+
+    async deleteSessionByTokenHash(tokenHash) {
+      const pool = getPool();
+      await pool.query('DELETE FROM sessions WHERE token_hash = $1', [tokenHash]);
+    },
+
+    async purgeExpiredSessions() {
+      const pool = getPool();
+      const { rowCount } = await pool.query('DELETE FROM sessions WHERE expires_at <= now()');
+      return rowCount ?? 0;
+    },
+
+    async listAuditLog({ limit = 100 } = {}) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        'SELECT * FROM audit_log ORDER BY created_at DESC LIMIT $1',
+        [limit],
+      );
+      return rows;
+    },
+
+    // ── walk traces ───────────────────────────────────────────────────
+    async createTrace({ coords, pointCount, distanceMeters, maxOffGraphMeters, note, reporterDevice }) {
+      const pool = getPool();
+      const geojson = JSON.stringify({
+        type: 'LineString',
+        coordinates: coords.map((p) => [p.lng, p.lat]),
+      });
+      const { rows } = await pool.query(
+        `INSERT INTO walk_traces
+           (geom, point_count, distance_m, max_off_graph_m, note, reporter_device)
+         VALUES (ST_GeomFromGeoJSON($1), $2, $3, $4, $5, $6)
+         RETURNING id, point_count, distance_m, max_off_graph_m, note, status, created_at`,
+        [geojson, pointCount, distanceMeters, maxOffGraphMeters, note ?? null, reporterDevice ?? null],
+      );
+      const r = rows[0];
+      return {
+        id: r.id,
+        pointCount: r.point_count,
+        distanceMeters: Number(r.distance_m),
+        maxOffGraphMeters: r.max_off_graph_m == null ? null : Number(r.max_off_graph_m),
+        note: r.note,
+        status: r.status,
+        createdAt: r.created_at,
+      };
+    },
+
+    async listTraces({ status, limit = 50 } = {}) {
+      const pool = getPool();
+      const params = [];
+      const where = status ? `WHERE status = $${params.push(status)}` : '';
+      // Furthest off-graph first: those are the ones worth a human's time.
+      params.push(limit);
+      const { rows } = await pool.query(
+        `SELECT id, point_count, distance_m, max_off_graph_m, note, status,
+                reporter_device, created_at, reviewed_by, review_note
+           FROM walk_traces ${where}
+          ORDER BY max_off_graph_m DESC NULLS LAST, created_at DESC
+          LIMIT $${params.length}`,
+        params,
+      );
+      return {
+        total: rows.length,
+        items: rows.map((r) => ({
+          id: r.id,
+          pointCount: r.point_count,
+          distanceMeters: Number(r.distance_m),
+          maxOffGraphMeters: r.max_off_graph_m == null ? null : Number(r.max_off_graph_m),
+          note: r.note,
+          status: r.status,
+          createdAt: r.created_at,
+          reviewedBy: r.reviewed_by,
+          reviewNote: r.review_note,
+        })),
+      };
+    },
+
+    async reviewTrace(id, { status, note, reviewer }) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `UPDATE walk_traces
+            SET status = $1, review_note = $2, reviewed_by = $3, reviewed_at = now()
+          WHERE id = $4
+        RETURNING id, point_count, distance_m, max_off_graph_m, note, status, created_at`,
+        [status, note ?? null, reviewer, id],
+      );
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      return {
+        id: r.id,
+        pointCount: r.point_count,
+        distanceMeters: Number(r.distance_m),
+        maxOffGraphMeters: r.max_off_graph_m == null ? null : Number(r.max_off_graph_m),
+        note: r.note,
+        status: r.status,
+        createdAt: r.created_at,
+      };
     },
   };
 }

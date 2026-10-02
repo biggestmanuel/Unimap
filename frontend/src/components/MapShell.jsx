@@ -2,6 +2,8 @@ import React from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import PoiMarkerLayer from './PoiMarkerLayer.jsx';
+import UserMarkerLayer from './UserMarkerLayer.jsx';
+import RouteLine from './RouteLine.jsx';
 import { CAMPUS_CENTER, CAMPUS_ZOOM } from '../lib/categories.js';
 
 /**
@@ -15,7 +17,10 @@ export default function MapShell({
   selectedId,
   onSelect,
   userPosition,
+  accuracyMeters,
+  route,
   onMapReady,
+  onMapClick,
   children,
 }) {
   return (
@@ -42,6 +47,8 @@ export default function MapShell({
           onSelect={onSelect}
           userPosition={userPosition}
         />
+        <UserMarkerLayer position={userPosition} accuracyMeters={accuracyMeters} />
+        {route && <RouteLine coords={route.coords} mode={route.mode} />}
         {children}
       </MapContainer>
     </div>

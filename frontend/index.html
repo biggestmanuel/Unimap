@@ -6,19 +6,30 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0F172A" />
+    <!-- Light in light mode, dark in dark mode; matches useTheme. -->
+    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <meta
       name="description"
-      content="Find your way around Rivers State University. Search campus locations and get walking directions."
+      content="Find your way around Rivers State University. Search campus locations and get walking directions. Works offline."
     />
     <title>UniMap — Navigate RSU</title>
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Standalone launch on iOS. Without these tags iOS opens in Safari. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="UniMap" />
+
+    <!--
+      No web font link on purpose. A render-blocking request to
+      fonts.googleapis.com defeats the point of an offline campus app and is
+      one more thing to fail on a bad Glo connection. The system stack in
+      unimap.css is used instead.
+    -->
   </head>
   <body>
     <div id="root"></div>

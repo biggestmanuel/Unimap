@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { verifyPassword } from '../lib/auth.js';
 
 /**
  * In-memory repository.
@@ -8,9 +9,38 @@ import { randomUUID } from 'node:crypto';
  * as the Postgres repository, so swapping is a one-line change in
  * server.js.
  */
-export function createMemoryRepo(seed = []) {
+export function createMemoryRepo(seed = [], { users = [] } = {}) {
   const pois = new Map();
   const corrections = new Map();
+  const userRows = new Map();
+  const sessions = new Map();
+  const audit = [];
+  const traces = new Map();
+
+  for (const u of users) {
+    userRows.set(u.id ?? randomUUID(), {
+      id: u.id ?? randomUUID(),
+      email: (u.email ?? '').toLowerCase(),
+      displayName: u.displayName ?? null,
+      role: u.role ?? 'student',
+      passwordHash: u.passwordHash,
+    });
+  }
+
+  // Seeded rows above may disagree on id if one was omitted; rebuild cleanly.
+  if (users.length > 0) {
+    userRows.clear();
+    for (const u of users) {
+      const id = u.id ?? randomUUID();
+      userRows.set(id, {
+        id,
+        email: (u.email ?? '').toLowerCase(),
+        displayName: u.displayName ?? null,
+        role: u.role ?? 'student',
+        passwordHash: u.passwordHash,
+      });
+    }
+  }
 
   for (const p of seed) {
     const id = p.id ?? randomUUID();
@@ -106,6 +136,119 @@ export function createMemoryRepo(seed = []) {
         }
       }
 
+      return record;
+    },
+
+    // ── auth ─────────────────────────────────────────────────────────
+    async findUserByEmail(email) {
+      const needle = String(email).toLowerCase();
+      for (const u of userRows.values()) {
+        if (u.email === needle) return u;
+      }
+      return null;
+    },
+
+    async getUser(id) {
+      return userRows.get(id) ?? null;
+    },
+
+    async createUser({ email, displayName, role, passwordHash }) {
+      const id = randomUUID();
+      const record = {
+        id,
+        email: String(email).toLowerCase(),
+        displayName: displayName ?? null,
+        role: role ?? 'student',
+        passwordHash,
+      };
+      userRows.set(id, record);
+      return record;
+    },
+
+    async listUsers() {
+      return [...userRows.values()];
+    },
+
+    async verifyUserPassword(id, password) {
+      const user = userRows.get(id);
+      if (!user) return false;
+      return verifyPassword(password, user.passwordHash);
+    },
+
+    async createSession({ userId, tokenHash, expiresAt, userAgent }) {
+      const record = {
+        id: randomUUID(),
+        userId,
+        tokenHash,
+        expiresAt: new Date(expiresAt).toISOString(),
+        userAgent: userAgent ?? null,
+      };
+      sessions.set(tokenHash, record);
+      return record;
+    },
+
+    async findSessionByTokenHash(tokenHash) {
+      return sessions.get(tokenHash) ?? null;
+    },
+
+    async deleteSessionByTokenHash(tokenHash) {
+      sessions.delete(tokenHash);
+    },
+
+    async purgeExpiredSessions() {
+      const now = Date.now();
+      let n = 0;
+      for (const [k, s] of sessions) {
+        if (new Date(s.expiresAt).getTime() <= now) {
+          sessions.delete(k);
+          n += 1;
+        }
+      }
+      return n;
+    },
+
+    async listAuditLog({ limit = 100 } = {}) {
+      return audit.slice(0, limit);
+    },
+
+    // ── walk traces ───────────────────────────────────────────────────
+    async createTrace({ coords, pointCount, distanceMeters, maxOffGraphMeters, note, reporterDevice }) {
+      const id = randomUUID();
+      const record = {
+        id,
+        coords,
+        pointCount,
+        distanceMeters,
+        maxOffGraphMeters: maxOffGraphMeters ?? null,
+        note: note ?? null,
+        reporterDevice: reporterDevice ?? null,
+        status: 'pending',
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNote: null,
+        createdAt: new Date().toISOString(),
+      };
+      traces.set(id, record);
+      return record;
+    },
+
+    async listTraces({ status, limit = 50 } = {}) {
+      let items = [...traces.values()];
+      if (status) items = items.filter((t) => t.status === status);
+      // Furthest off-graph first: those are the ones worth a human's time.
+      items.sort(
+        (a, b) => (b.maxOffGraphMeters ?? -1) - (a.maxOffGraphMeters ?? -1),
+      );
+      return { items: items.slice(0, limit), total: items.length };
+    },
+
+    async reviewTrace(id, { status, note, reviewer }) {
+      const record = traces.get(id);
+      if (!record) return null;
+      record.status = status;
+      record.reviewNote = note ?? null;
+      record.reviewedBy = reviewer;
+      record.reviewedAt = new Date().toISOString();
       return record;
     },
   };

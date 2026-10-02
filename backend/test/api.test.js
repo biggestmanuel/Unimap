@@ -273,17 +273,41 @@ describe('admin moderation', () => {
     expect(res.status).toBe(404);
   });
 
-  it('is closed by default in production', async () => {
+  it('is closed to anonymous callers in production', async () => {
+    // Previously this returned 501 in production, as a placeholder for auth
+    // that had not been built. Now the gate is real, so the guarantee is
+    // stronger and holds in every environment: no session, no admin.
     const original = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
       const app = createApp({ repo: createMemoryRepo(SEED) });
       const res = await request(app).get('/api/admin/corrections');
-      expect(res.status).toBe(501);
-      expect(res.body.error).toBe('admin_api_disabled');
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('not_authenticated');
     } finally {
       process.env.NODE_ENV = original;
     }
+  });
+
+  it('is closed to a bogus session token in production', async () => {
+    const original = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const app = createApp({ repo: createMemoryRepo(SEED) });
+      const res = await request(app)
+        .get('/api/admin/corrections')
+        .set('Authorization', 'Bearer not-a-real-token');
+      expect(res.status).toBe(401);
+    } finally {
+      process.env.NODE_ENV = original;
+    }
+  });
+
+  it('is closed to anonymous callers outside production too', async () => {
+    // The old 501 gate only bit in production, which meant dev was open.
+    const app = createApp({ repo: createMemoryRepo(SEED) });
+    const res = await request(app).get('/api/admin/corrections');
+    expect(res.status).toBe(401);
   });
 });
 
