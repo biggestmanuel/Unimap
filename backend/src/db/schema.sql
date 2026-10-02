@@ -1,0 +1,136 @@
+-- UniMap schema. PostGIS because the campus boundary check, corridor
+-- snapping and "nearest POI" queries are all spatial operations that
+-- would otherwise be slow hand-rolled maths in SQL.
+
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+
+-- ── POIs ────────────────────────────────────────────────────────────
+-- One row per campus location. Coordinates are geography(WGS84) so
+-- ST_DWithin/ST_Distance do great-circle maths for us.
+CREATE TABLE IF NOT EXISTS pois (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name            text        NOT NULL,
+  category        text        NOT NULL DEFAULT 'other',
+  description     text,
+  accessibility   text[]      NOT NULL DEFAULT '{}',
+  safety          boolean     NOT NULL DEFAULT false,
+  location        geography(Point, 4326) NOT NULL,
+
+  -- Provenance: which source last wrote this row.
+  source          text        NOT NULL DEFAULT 'seed',
+  verified_at     timestamptz,
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT pois_name_not_blank CHECK (btrim(name) <> '')
+);
+
+-- Case-insensitive uniqueness so "neh" and "NEH" cannot coexist.
+CREATE UNIQUE INDEX IF NOT EXISTS pois_name_lower_key ON pois (lower(name));
+CREATE INDEX IF NOT EXISTS pois_category_idx ON pois (category);
+-- Spatial index: required for ST_DWithin / ORDER BY distance to be fast.
+CREATE INDEX IF NOT EXISTS pois_location_gix ON pois USING gist (location);
+
+-- Full-text search over name + description.
+CREATE INDEX IF NOT EXISTS pois_search_idx ON pois
+  USING gin (to_tsvector('simple', coalesce(name, '') || ' ' || coalesce(description, '')));
+
+-- ── Corrections ─────────────────────────────────────────────────────
+-- Student submissions. Deliberately separate from pois: a correction is
+-- a *proposal* and never mutates campus data until an admin approves it.
+CREATE TABLE IF NOT EXISTS corrections (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  poi_id          uuid REFERENCES pois(id) ON DELETE CASCADE,
+
+  -- Set when the student is proposing a location that does not exist yet.
+  proposed_name   text,
+  proposed_category text,
+  proposed_location geography(Point, 4326),
+
+  kind            text        NOT NULL
+                  CHECK (kind IN ('moved', 'renamed', 'removed', 'created', 'detail')),
+
+  detail          text        NOT NULL,
+  reporter_email  text,
+  reporter_device text,
+
+  status          text        NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'approved', 'rejected')),
+  reviewed_by     text,
+  reviewed_at     timestamptz,
+  review_note     text,
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+
+  -- A proposal must target something: either an existing POI or a new one.
+  CONSTRAINT corrections_has_target CHECK (poi_id IS NOT NULL OR proposed_name IS NOT NULL)
+);
+
+-- The moderation queue: list pending, newest first.
+CREATE INDEX IF NOT EXISTS corrections_queue_idx
+  ON corrections (status, created_at DESC);
+
+-- ── Users ───────────────────────────────────────────────────────────
+-- Minimal for now. Roles gate the admin panel; auth lands in Phase 5.
+CREATE TABLE IF NOT EXISTS users (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         text UNIQUE NOT NULL,
+  display_name  text,
+  role          text NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'admin')),
+  password_hash text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- ── Audit trail ─────────────────────────────────────────────────────
+-- Append-only. Who changed what, and when, for campus data corrections.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id           bigserial PRIMARY KEY,
+  actor        text,
+  action       text NOT NULL,
+  entity_type  text NOT NULL,
+  entity_id    text,
+  before_data  jsonb,
+  after_data   jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS audit_entity_idx ON audit_log (entity_type, entity_id);
+
+-- ── Walk graph (Phase 4) ────────────────────────────────────────────
+-- Present now so the schema is settled before anyone traces footpaths.
+-- Two edge classes: corridors are the backbone, footpaths are shortcuts
+-- that are only routable when connected at BOTH ends.
+CREATE TABLE IF NOT EXISTS graph_edges (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  osm_id        bigint,
+  geom          geometry(LineString, 4326) NOT NULL,
+  edge_class    text NOT NULL CHECK (edge_class IN ('corridor', 'footpath')),
+  name          text,
+  walk_speed_mps numeric(4,2) NOT NULL DEFAULT 1.35,
+  surface       text,
+  source        text NOT NULL DEFAULT 'osm',
+
+  created_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT graph_edges_geoms_not_empty CHECK (ST_NPoints(geom) >= 2)
+);
+
+CREATE INDEX IF NOT EXISTS graph_edges_geom_gix ON graph_edges USING gist (geom);
+
+-- A footpath is only usable if it meets the network twice; enforcement
+-- happens in the router, but this index makes the query cheap.
+CREATE INDEX IF NOT EXISTS graph_edges_class_idx ON graph_edges (edge_class);
+
+-- ── Triggers ────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS pois_touch ON pois;
+CREATE TRIGGER pois_touch BEFORE UPDATE ON pois
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

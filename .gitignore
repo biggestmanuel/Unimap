@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+
+# Coverage
+frontend/coverage/
+backend/coverage/
+
+# OSM tiles are fetched on demand and must never be committed
+*.osm.pbf
+*.osrm*

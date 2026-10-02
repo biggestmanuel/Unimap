@@ -1,43 +1,88 @@
 # UniMap
 
-A mobile-first campus navigation web app for **Rivers State University (RSU)**. Search for a building or place on campus, drop a pin, and get walking directions with live GPS tracking — no app install required.
+Mobile-first campus navigation for **Rivers State University**. Search a
+building, get walking directions, work offline.
 
-## Features
-
-- Searchable directory of campus locations (buildings, hostels, faculties, banks, etc.), loaded from `unimap.geojson`
-- Popular-places quick-select chips
-- Live "you are here" tracking via the browser Geolocation API
-- Turn-by-turn walking routes (via [OSRM](http://project-osrm.org/)) with a live distance/time readout
-- "I'm Lost" — finds and highlights your nearest known landmark
-- Automatic arrival detection
-- Installable as a home-screen PWA (`site.webmanifest`)
-
-## Running it locally
-
-This is a static site — no build step required. Serve the folder with any static file server, for example:
-
-```bash
-python3 -m http.server 8000
+```
+Unimap/
+  frontend/   React + Vite app (the product)
+  backend/    Express API, PostGIS, corrections + moderation
+  legacy/     Pre-React vanilla build, kept as a reference only
 ```
 
-Then open `http://localhost:8000`. It won't work opened directly as a `file://` URL, since the browser needs to `fetch()` `unimap.geojson`.
+## Quick start
 
-## Files
+```bash
+# 1. Frontend (no backend needed for the map + search slice)
+cd frontend
+npm install
+npm run dev            # http://localhost:5173
 
-| File | Purpose |
-|---|---|
-| `index.html` | App shell / markup |
-| `unimap.css` | Styling (light blue / white theme) |
-| `unimap.js` | Map logic, search, routing, geolocation |
-| `unimap.geojson` | Campus location data (name + coordinates + optional description) |
-| `site.webmanifest` | PWA metadata |
+# 2. Backend — optional, in-memory if DATABASE_URL is unset
+cd ../backend
+npm install
+npm run dev            # http://localhost:4000
+```
 
-## Known limitations
+For the real database:
 
-- Routing uses the public OSRM demo server, which is rate-limited and not intended for production traffic — swap in a self-hosted OSRM instance (or another routing provider) before wider release.
-- The offline banner reflects connectivity status only; map tiles are not actually cached for offline use.
-- Location data (`unimap.geojson`) is community-sourced and may drift out of date as campus buildings change — PRs to correct names/coordinates are welcome.
+```bash
+cp .env.example .env
+docker compose up -d   # PostGIS on 5433
+cd backend && npm run migrate && npm run seed
 
-## Adding a location
+# Build the walk graph from OpenStreetMap, then run it:
+node src/graph/importOsm.js
+node scripts/verifyCampusRouting.js   # routes real POI pairs
+```
 
-Add a new `Feature` to `unimap.geojson` with a `Name`, optional `description`, and `[longitude, latitude]` coordinates. To surface it as a quick-select chip, add its exact name to `POPULAR_PLACES` in `unimap.js` (and optionally a shorter label in `POPULAR_LABELS`).
+Routing is in-process (A* over `graph_edges`), so there is no external
+routing service to run.
+
+## Status
+
+| Phase | Scope | State |
+|---|---|---|
+| 0 | Restructure, tooling, test harness | done |
+| 1 | Map, POI markers, search, category filters, chips | done |
+| 2 | Routing, GPS, geofence, arrival, "I'm Lost" | next |
+| 3 | Offline PWA, tile pack, install prompt | planned |
+| 4 | Walk graph (corridors + footpaths) | planned |
+| 5 | Admin panel, auth, moderation UI | planned |
+
+## Tests
+
+```bash
+cd frontend
+npm test               # 110 unit + component tests (Vitest)
+npm run test:e2e       # 16 end-to-end tests (Playwright, mobile + desktop)
+
+cd ../backend
+npm test               # 55 tests (node:test + supertest)
+```
+
+The frontend suite includes **data integrity tests** that read the real
+`unimap.geojson` and assert every POI has a unique name, a valid
+category, coordinates inside the campus boundary, and that all 15
+"popular place" chips resolve. Those catch the class of bug that made
+the legacy chips silently dead.
+
+## Architecture notes
+
+**The Leaflet map is imperative.** React owns the UI chrome; the map
+instance and its markers live in refs and are mutated directly. Category
+filtering changes marker opacity without rebuilding anything. This is
+what keeps the map smooth while GPS updates arrive several times a
+second.
+
+**Corrections never write to campus data directly.** A student submission
+lands in `corrections` as a pending proposal. Only an admin approval
+applies it, in a single transaction that also writes an audit row.
+
+**Offline routing falls back to straight-line** until the walk graph is
+built, so nothing is blocked on surveying campus paths.
+
+## Manual steps you still need to do
+
+See [`PLAN.md`](./PLAN.md) for the full backlog and the list of things
+that cannot be automated.

@@ -1,0 +1,34 @@
+# UniMap local stack.
+#
+#   docker compose up -d
+#
+# PostGIS only. The API picks up DATABASE_URL from .env (see .env.example).
+#
+# There is deliberately no routing container: the campus walk graph is
+# imported from OpenStreetMap into graph_edges and routed in-process by
+# backend/src/graph/router.js. An OSRM container would mean downloading a
+# country-wide extract to route across 2 km, and it would break the offline
+# requirement anyway.
+
+services:
+  db:
+    # PostGIS 3.4 — image includes the extension, so no CREATE EXTENSION
+    # step is needed before migrations.
+    image: postgis/postgis:16-3.4
+    container_name: unimap-db
+    environment:
+      POSTGRES_USER: unimap
+      POSTGRES_PASSWORD: unimap_dev
+      POSTGRES_DB: unimap
+    ports:
+      - '5433:5432'
+    volumes:
+      - unimap-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U unimap']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  unimap-pgdata:
