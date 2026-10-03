@@ -76,10 +76,22 @@ export default function AdminApp() {
         // CSRF. A token in a header is attached deliberately, so forgery is
         // structurally impossible. The cost is no persistence across reloads.
       });
+      // Read the error code from the body before deciding what a 401 meant: the
+      // body is consumed once, so it cannot be read again after this.
+      const parsedError = res.status === 401
+        ? await res.clone().json().catch(() => ({}))
+        : null;
+
       if (res.status === 401) {
-        tokenRef.current = null;
-        setUser(null);
-        throw new Error('not_authenticated');
+        // Only treat a 401 as an expired session if we actually had one. A
+        // failed sign-in also returns 401, and calling that "not authenticated"
+        // would tell someone who mistyped their password that their session
+        // ended, which is both wrong and unhelpful.
+        if (token) {
+          tokenRef.current = null;
+          setUser(null);
+        }
+        throw new Error(parsedError?.error ?? 'not_authenticated');
       }
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
