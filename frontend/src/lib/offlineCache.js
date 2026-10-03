@@ -158,7 +158,7 @@ async function removeQueued(id) {
  */
 export async function flushQueue({ base = '/api' } = {}) {
   const queued = await listQueued();
-  const summary = { sent: 0, dropped: 0, failed: 0 };
+  const summary = { sent: 0, dropped: 0, failed: 0, retryAfter: null };
 
   for (const item of queued) {
     try {
@@ -179,13 +179,33 @@ export async function flushQueue({ base = '/api' } = {}) {
       if (res.status === 201) {
         await removeQueued(item.id);
         summary.sent += 1;
-      } else if (res.status >= 400 && res.status < 500) {
-        // Permanently unacceptable; stop retrying it.
+        continue;
+      }
+
+      // 429 is rate limiting, not rejection. It is also a 4xx, so treating
+      // "4xx means invalid" would have thrown away a student's report the
+      // moment they submitted several in a row -- the exact thing the API
+      // rate limits. Back off and keep the item.
+      if (res.status === 429) {
+        const header = Number(res.headers.get('Retry-After'));
+        summary.retryAfter = Number.isFinite(header) && header > 0
+          ? header
+          : summary.retryAfter ?? 30;
+        summary.failed += 1;
+        break;
+      }
+
+      if (res.status >= 400 && res.status < 500) {
+        // Genuinely unacceptable (bad payload, or no longer allowed).
+        // Retrying forever would never succeed.
         await removeQueued(item.id);
         summary.dropped += 1;
-      } else {
-        summary.failed += 1;
+        continue;
       }
+
+      // 5xx and anything unexpected: the server is unwell, keep the item.
+      summary.failed += 1;
+      break;
     } catch {
       // Still offline.
       summary.failed += 1;

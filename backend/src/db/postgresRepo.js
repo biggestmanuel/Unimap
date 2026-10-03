@@ -296,6 +296,18 @@ export function createPostgresRepo() {
       return rows;
     },
 
+    async appendAudit({ actor, action, entityType, entityId, afterData = null }) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `INSERT INTO audit_log (actor, action, entity_type, entity_id, after_data)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [actor ?? null, action, entityType, entityId ?? null,
+          afterData == null ? null : JSON.stringify(afterData)],
+      );
+      return rows[0];
+    },
+
     // ── walk traces ───────────────────────────────────────────────────
     async createTrace({ coords, pointCount, distanceMeters, maxOffGraphMeters, note, reporterDevice }) {
       const pool = getPool();

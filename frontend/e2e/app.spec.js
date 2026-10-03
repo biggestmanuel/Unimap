@@ -133,8 +133,11 @@ test('falls back to saved data when the network fails, and says so', async ({ pa
 
   // The campus still loads...
   await expect(page.getByText(/3 locations/)).toBeVisible();
-  // ...but the user is told it is saved data, not live.
+  // ...but the user is told it is saved data, not live. Deliberately does not
+  // claim they are offline: the origin can be down while the browser is fine.
   await expect(page.getByText(/showing saved campus data/i)).toBeVisible();
+  await expect(page.getByText(/could not reach the server/i)).toBeVisible();
+  await expect(page.getByText(/you are offline/i)).toHaveCount(0);
   // And no error card, because this is a recovery rather than a failure.
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

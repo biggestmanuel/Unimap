@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { createPoiIcon, createUserIcon } from './markers.js';
+import { createPoiIcon } from './markers.js';
 import { formatDistance } from '../lib/geo.js';
 
 /**
@@ -16,11 +16,12 @@ import { formatDistance } from '../lib/geo.js';
  * Tracking (Phase 2) extends the same rule: the user marker moves via
  * setLatLng inside a watchPosition loop and never through setState.
  */
-export default function PoiMarkerLayer({ pois, category, selectedId, onSelect, userPosition }) {
+// The user marker is NOT drawn here. UserMarkerLayer owns it, and keeping a
+// second copy in this layer put two identical markers on the map.
+export default function PoiMarkerLayer({ pois, category, selectedId, onSelect }) {
   const map = useMap();
   const layerRef = useRef(null);
   const markersRef = useRef(new Map());
-  const userMarkerRef = useRef(null);
   const poisRef = useRef(pois);
   poisRef.current = pois;
 
@@ -118,22 +119,6 @@ export default function PoiMarkerLayer({ pois, category, selectedId, onSelect, u
       map.flyTo(poi.position, Math.max(map.getZoom(), 17), { duration: 0.6 });
     }
   }, [selectedId, map]);
-
-  // User location marker. Position arrives as a prop today; in Phase 2
-  // this same marker is moved imperatively from a watchPosition loop
-  // without re-rendering this component.
-  useEffect(() => {
-    if (!userPosition) return;
-    if (!userMarkerRef.current) {
-      userMarkerRef.current = L.marker(userPosition, {
-        icon: createUserIcon(),
-        zIndexOffset: 1000,
-        interactive: false,
-      }).addTo(map);
-    } else {
-      userMarkerRef.current.setLatLng(userPosition);
-    }
-  }, [userPosition, map]);
 
   return null;
 }

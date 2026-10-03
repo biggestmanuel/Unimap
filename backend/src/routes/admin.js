@@ -24,12 +24,13 @@ export default function createAdminRoutes({ repo, graphRepo, requireAdmin }) {
 
   router.get('/admin/summary', async (req, res, next) => {
     try {
-      const [pending, all, users] = await Promise.all([
+      const [pending, recent, users, stats] = await Promise.all([
         repo.listCorrections({ status: 'pending', limit: 1, offset: 0 }),
-        repo.listCorrections({ status: 'pending', limit: 100, offset: 0 }),
+        // Only five are shown, so ask for five rather than a hundred.
+        repo.listCorrections({ status: 'pending', limit: 5, offset: 0 }),
         repo.listUsers(),
+        graphRepo.getStats(),
       ]);
-      const stats = await graphRepo.getStats();
 
       res.json({
         pendingCorrections: pending.total,
@@ -42,7 +43,7 @@ export default function createAdminRoutes({ repo, graphRepo, requireAdmin }) {
           deadEndCount: stats.deadEndCount,
           totalMeters: Math.round(stats.totalMeters ?? 0),
         },
-        recent: all.items.slice(0, 5),
+        recent: recent.items,
       });
     } catch (err) {
       next(err);
@@ -82,6 +83,18 @@ export default function createAdminRoutes({ repo, graphRepo, requireAdmin }) {
         ...rest,
         passwordHash: await hashPassword(password),
       });
+
+      // Creating an admin is precisely the action an audit trail exists for:
+      // without this, a rogue or careless admin could mint further admins
+      // and nothing would record who did it.
+      await repo.appendAudit?.({
+        actor: req.user.email,
+        action: 'user.created',
+        entityType: 'user',
+        entityId: created.id,
+        afterData: { email: created.email, role: created.role },
+      });
+
       res.status(201).json({ user: publicUser(created) });
     } catch (err) {
       next(err);

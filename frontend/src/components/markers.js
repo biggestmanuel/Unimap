@@ -21,15 +21,8 @@ export function createPoiIcon(category, { active = false } = {}) {
   });
 }
 
-/** User location marker — deliberately distinct from POIs. */
-export function createUserIcon() {
-  return L.divIcon({
-    className: 'user-marker-wrapper',
-    html: `<div class="user-marker" aria-hidden="true">
-             <span class="user-marker__pulse"></span>
-             <span class="user-marker__dot"></span>
-           </div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-  });
-}
+/*
+ * The user marker icon lives in UserMarkerLayer, not here: that component
+ * also owns the accuracy circle and the imperative position updates, and a
+ * second copy in the POI layer meant two markers on the map.
+ */

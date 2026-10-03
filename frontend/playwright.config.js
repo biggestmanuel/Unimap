@@ -1,5 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
+/**
+ * The e2e dev server runs on its own port, matching vite.config.js.
+ *
+ * It must NOT be 5173: several projects on this machine default to that, and
+ * `reuseExistingServer` then silently ran this suite against a different app's
+ * dev server. Tests that pass against the wrong application are worse than
+ * tests that fail.
+ */
+const PORT = 5199;
+const BASE_URL = `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -9,7 +20,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -22,8 +33,10 @@ export default defineConfig({
 
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    url: BASE_URL,
+    // Always start our own. Reusing whatever happens to be listening is how
+    // this suite ended up testing someone else's app.
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });

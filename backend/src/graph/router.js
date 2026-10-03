@@ -237,22 +237,6 @@ function partialMeters(segment, t, index) {
   return len * (index === 0 ? t : 1 - t);
 }
 
-/** Stitch a list of directed edges back into a single polyline. */
-function linksToCoords(links) {
-  if (links.length === 0) return [];
-  const out = [];
-  for (const link of links) {
-    const seq = link.toPoint === link.coords[link.coords.length - 1]
-      ? link.coords
-      : [...link.coords].reverse();
-    for (const p of seq) {
-      const last = out[out.length - 1];
-      if (!last || last.lat !== p.lat || last.lng !== p.lng) out.push(p);
-    }
-  }
-  return out;
-}
-
 /** Which end of `link` we leave from, so the polyline can be oriented. */
 function orientedCoords(link, fromPoint) {
   const first = link.coords[0];
@@ -337,28 +321,25 @@ export function findRoute(graph, from, to, { maxSnapMeters = 50, walkSpeedMps = 
     return straightLine(from, to, walkSpeedMps, 'network_disconnected');
   }
 
-  const middle = linksToCoords(res.links);
+  const legs = buildLegs(a, b, res);
+
+  // Derive the drawn polyline from the legs rather than stitching the links a
+  // second time. Two independent orientation rules for the same edges is how a
+  // route ends up drawn one way and described another.
   const coords = [from];
-  for (const p of [a.point, ...middle, b.point]) {
-    const last = coords[coords.length - 1];
-    if (!last || last.lat !== p.lat || last.lng !== p.lng) coords.push(p);
+  for (const leg of legs) {
+    for (const p of leg.coords) {
+      const last = coords[coords.length - 1];
+      if (!last || last.lat !== p.lat || last.lng !== p.lng) coords.push(p);
+    }
   }
-  coords.push(to);
+  const lastLegEnd = legs[legs.length - 1]?.coords.slice(-1)[0];
+  if (!lastLegEnd
+    || lastLegEnd.lat !== to.lat || lastLegEnd.lng !== to.lng) {
+    coords.push(to);
+  }
 
   const distanceMeters = res.totalMeters + a.distanceMeters + b.distanceMeters;
-
-  let legs = buildLegs(a, b, res);
-  if (legs.length === 0) {
-    // Degenerate: the two snapped points coincide. Still hand back something
-    // shaped like a leg so the client never has to special-case an empty list.
-    legs = [{
-      name: a.segment.name ?? null,
-      edgeClass: a.segment.edgeClass,
-      surface: a.segment.surface ?? null,
-      lengthMeters: 0,
-      coords: [a.point, b.point],
-    }];
-  }
 
   return {
     found: true,

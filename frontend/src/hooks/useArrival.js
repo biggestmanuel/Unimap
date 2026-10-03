@@ -56,7 +56,6 @@ export function useArrival({ routeCoords, destination, position, toleranceMeters
   const [remaining, setRemaining] = useState(null);
 
   const offRouteCount = useRef(0);
-  const announceTimer = useRef(null);
 
   // Reset whenever the destination changes, so arriving at the library does
   // not leave the flag set when you then walk to the canteen.
@@ -106,8 +105,6 @@ export function useArrival({ routeCoords, destination, position, toleranceMeters
       setOffRoute(false);
     }
   }, [routeCoords]);
-
-  useEffect(() => () => clearTimeout(announceTimer.current), []);
 
   const reset = useCallback(() => {
     setArrived(false);

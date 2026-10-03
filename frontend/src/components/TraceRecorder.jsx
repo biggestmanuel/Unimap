@@ -23,7 +23,7 @@ export default function TraceRecorder({ position, offNetworkMeters, onDismiss })
   const pointsRef = useRef([]);
 
   // Accumulate while recording. Refs, because this runs on every GPS fix and
-  // must not re-render the map �� the panel only needs to know the length.
+  // must not re-render the map -- the panel only needs the length.
   useEffect(() => {
     if (!recording || !position) return;
     buffer.current.push({ lat: position.lat, lng: position.lng });
@@ -33,21 +33,30 @@ export default function TraceRecorder({ position, offNetworkMeters, onDismiss })
     setPoints(cleaned);
   }, [position, recording]);
 
-  // Stop once back on the network, so an abandoned recording cannot grow.
+  /**
+   * Stop once we are back on the mapped network, so an abandoned recording
+   * cannot quietly accumulate a campus-wide walk.
+   *
+   * Needs at least one recorded point first. `offNetworkMeters` is whatever
+   * the *last route request* reported, so on the very first render it can
+   * already be small -- acting on it then stopped recording instantly, every
+   * time.
+   */
   useEffect(() => {
-    if (recording && offNetworkMeters != null && offNetworkMeters < 25) {
-      setRecording(false);
-    }
+    if (!recording || offNetworkMeters == null) return;
+    if (pointsRef.current.length < 2) return;
+    if (offNetworkMeters < 25) setRecording(false);
   }, [offNetworkMeters, recording]);
 
   const start = useCallback(() => {
+    if (recording) return;
     buffer.current = position ? [{ lat: position.lat, lng: position.lng }] : [];
     pointsRef.current = buffer.current;
     setPoints(buffer.current);
     setRecording(true);
     setStatus('recording');
     setMessage(null);
-  }, [position]);
+  }, [position, recording]);
 
   const stop = useCallback(async () => {
     setRecording(false);

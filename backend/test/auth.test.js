@@ -326,6 +326,29 @@ test('a new user can immediately log in', async () => {
   assert.equal(res.status, 200);
 });
 
+test('creating an admin is written to the audit log', async () => {
+  // Minting a further admin is exactly what an audit trail is for. Without
+  // this, a rogue or careless admin could create accounts invisibly.
+  const { app, repo } = await fixture();
+  const login = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'admin@rsu.edu.ng', password: PASSWORD });
+
+  await request(app)
+    .post('/api/admin/users')
+    .set('Authorization', `Bearer ${login.body.token}`)
+    .send({ email: 'second@rsu.edu.ng', role: 'admin', password: 'a-decent-password' });
+
+  const audit = await repo.listAuditLog({ limit: 50 });
+  const entry = audit.find((a) => a.action === 'user.created');
+
+  assert.ok(entry, 'no audit entry was written');
+  assert.equal(entry.actor, 'admin@rsu.edu.ng');
+  assert.equal(entry.entity_type, 'user');
+  // The audit row must not carry the password hash.
+  assert.ok(!JSON.stringify(entry).includes('scrypt$'));
+});
+
 test('the admin summary reports graph health', async () => {
   const { app } = await fixture();
   const login = await request(app)

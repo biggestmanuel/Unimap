@@ -65,7 +65,6 @@ export default function MapShell({
           category={category}
           selectedId={selectedId}
           onSelect={onSelect}
-          userPosition={userPosition}
         />
         <UserMarkerLayer position={userPosition} accuracyMeters={accuracyMeters} />
         {route && <RouteLine coords={route.coords} mode={route.mode} />}

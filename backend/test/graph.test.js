@@ -164,6 +164,53 @@ test('snapToGraph returns null when everything is beyond the limit', () => {
   assert.equal(snapToGraph(far, g, { maxDistanceMeters: 10 }), null);
 });
 
+test('the drawn polyline and the described legs are the same path', () => {
+  // Regression risk: the polyline and the legs used to be built by two
+  // separate orientation rules for the same edges, so a route could be drawn
+  // one way and described another.
+  const g = crossroads();
+  const route = findRoute(g, offset(ORIGIN, 380, 0), offset(ORIGIN, 200, 290));
+
+  assert.equal(route.found, true);
+  assert.ok(route.legs.length > 0);
+
+  // Every leg vertex must appear on the drawn route, in order.
+  const onRoute = (p) => route.coords.some(
+    (c) => Math.abs(c.lat - p.lat) < 1e-9 && Math.abs(c.lng - p.lng) < 1e-9,
+  );
+  for (const leg of route.legs) {
+    for (const p of leg.coords) {
+      assert.ok(onRoute(p), `leg point ${p.lat},${p.lng} is not on the drawn route`);
+    }
+  }
+
+  // And the route must start and end where we asked.
+  assert.equal(route.coords[0].lat, offset(ORIGIN, 380, 0).lat);
+  assert.equal(route.coords[route.coords.length - 1].lat, offset(ORIGIN, 200, 290).lat);
+
+  // No duplicated consecutive points in the drawn geometry.
+  for (let i = 1; i < route.coords.length; i += 1) {
+    const a = route.coords[i - 1];
+    const b = route.coords[i];
+    assert.ok(
+      a.lat !== b.lat || a.lng !== b.lng,
+      `duplicate point at index ${i}`,
+    );
+  }
+});
+
+test('leg distances sum to roughly the route distance', () => {
+  const g = crossroads();
+  const route = findRoute(g, offset(ORIGIN, 10, 0), offset(ORIGIN, 390, 0));
+
+  const legTotal = route.legs.reduce((s, l) => s + l.lengthMeters, 0);
+  // Legs cover the graph portion; the route also includes the short hops on
+  // and off the network, so the legs are the smaller number.
+  assert.ok(legTotal > 0);
+  assert.ok(legTotal <= route.distanceMeters + 1);
+  assert.ok(route.distanceMeters - legTotal < 60);
+});
+
 // ── routing ────────────────────────────────────────────────────────────
 test('finds a route along connected ways', () => {
   const g = crossroads();

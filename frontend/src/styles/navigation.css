@@ -97,6 +97,15 @@
   box-shadow: var(--shadow-sheet);
 }
 
+/* Third action in the stack, so the three never overlap. */
+.fab--tertiary {
+  bottom: calc(200px + var(--safe-bottom));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sheet);
+}
+
 /* ── Notices ─────────────────────────────────────────────────────────── */
 .notice {
   position: absolute;

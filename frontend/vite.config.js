@@ -96,6 +96,12 @@ export default defineConfig({
     }),
   ],
   server: {
+    // A dedicated port with strictPort. Several projects on this machine
+    // default to 5173, and Vite's fallback is to quietly move to 5174 --
+    // which left the e2e suite serving one project's tests against another
+    // project's dev server.
+    port: 5199,
+    strictPort: true,
     // Same-origin proxy so the app can talk to the API in dev.
     proxy: {
       '/api': {

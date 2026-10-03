@@ -82,7 +82,11 @@ export default function AdminApp() {
   }, [api]);
 
   useEffect(() => {
-    if (user) refresh();
+    // Only an admin has anything to load. A student who signed in would get
+    // 401 from all four admin endpoints, which used to clear the session and
+    // bounce them straight back to the login screen with no explanation --
+    // the "Not allowed" panel below never got a chance to render.
+    if (user?.role === 'admin') refresh();
   }, [user, refresh]);
 
   async function login(event) {

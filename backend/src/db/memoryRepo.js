@@ -218,6 +218,21 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       return audit.slice(0, limit);
     },
 
+    async appendAudit({ actor, action, entityType, entityId, afterData = null }) {
+      const record = {
+        id: audit.length + 1,
+        actor: actor ?? null,
+        action,
+        entity_type: entityType,
+        entity_id: entityId ?? null,
+        before_data: null,
+        after_data: afterData,
+        created_at: new Date().toISOString(),
+      };
+      audit.push(record);
+      return record;
+    },
+
     // ── walk traces ───────────────────────────────────────────────────
     async createTrace({ coords, pointCount, distanceMeters, maxOffGraphMeters, note, reporterDevice }) {
       const id = randomUUID();

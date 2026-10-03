@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Polyline } from 'react-leaflet';
 
 /**
@@ -8,16 +8,12 @@ import { Polyline } from 'react-leaflet';
  * outdoors, in daylight, often one-handed. Casing underneath the line keeps it
  * legible over both dark asphalt and pale paths.
  */
-export default function RouteLine({ coords, mode = 'graph', onReady }) {
+export default function RouteLine({ coords, mode = 'graph' }) {
   // Leaflet wants [lat, lng]; the API speaks {lat, lng}.
   const positions = useMemo(
     () => (Array.isArray(coords) ? coords.map((p) => [p.lat, p.lng]) : []),
     [coords],
   );
-
-  useEffect(() => {
-    if (positions.length >= 2) onReady?.(positions);
-  }, [positions, onReady]);
 
   if (positions.length < 2) return null;
 

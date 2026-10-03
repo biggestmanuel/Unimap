@@ -28,9 +28,14 @@ export default function CorrectionForm({ poi, onClose }) {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState('idle'); // idle | sending | sent | queued | error
   const [error, setError] = useState(null);
+  const [proposedName, setProposedName] = useState('');
 
+  // The API requires a replacement name for a rename, and a name-only hint in
+  // the free text is not enough to satisfy it -- every rename submitted this
+  // way was rejected with a 400 and then queued forever.
   const needsName = kind === 'renamed';
-  const canSubmit = detail.trim().length >= 5 && (!needsName || detail.trim().length > 0);
+  const canSubmit = detail.trim().length >= 5
+    && (!needsName || proposedName.trim().length >= 2);
 
   async function submit(event) {
     event.preventDefault();
@@ -43,6 +48,7 @@ export default function CorrectionForm({ poi, onClose }) {
       poiId: poi?.id,
       kind,
       detail: detail.trim(),
+      proposedName: needsName ? proposedName.trim() : undefined,
       reporterEmail: email.trim() || undefined,
       reporterDevice: navigator.userAgent?.slice(0, 100),
     };
@@ -58,20 +64,49 @@ export default function CorrectionForm({ poi, onClose }) {
         setStatus('sent');
         return;
       }
-      // Offline or server down: queue rather than lose the report.
-      const { queueCorrection } = await import('../lib/offlineQueue.js');
-      await queueCorrection(payload);
-      setStatus('queued');
-    } catch {
-      try {
-        const { queueCorrection } = await import('../lib/offlineQueue.js');
-        await queueCorrection(payload);
-        setStatus('queued');
-      } catch {
-        setError('Could not send that, and could not save it for later.');
+
+      // Rate limited: the request was fine, there are just too many of them.
+      // Queuing would only hit the same limit again on reconnect, so say so
+      // and let the student decide when to retry.
+      if (res.status === 429) {
+        const wait = Number(res.headers.get('Retry-After'));
+        setError(
+          `Too many reports at once. Try again in about `
+          + `${Number.isFinite(wait) && wait > 0 ? wait : 30} seconds.`,
+        );
         setStatus('error');
+        return;
       }
+
+      // Server rejected it (validation) or we are offline. Try to queue it.
+      await queueLocally(payload);
+    } catch {
+      // Network threw. Queue it.
+      await queueLocally(payload);
     }
+  }
+
+  /**
+   * Save a report for later.
+   *
+   * `queueCorrection` resolves to false when IndexedDB is unavailable rather
+   * than throwing -- private browsing does exactly that. Treating that as
+   * success told the student their report was safely stored and then threw it
+   * away, so the return value has to be checked.
+   */
+  async function queueLocally(payload) {
+    try {
+      const { queueCorrection } = await import('../lib/offlineQueue.js');
+      const stored = await queueCorrection(payload);
+      if (stored) {
+        setStatus('queued');
+        return;
+      }
+      setError('Could not send that, and this browser will not let me save it for later.');
+    } catch {
+      setError('Could not send that, and could not save it for later.');
+    }
+    setStatus('error');
   }
 
   if (status === 'sent' || status === 'queued') {
@@ -112,9 +147,24 @@ export default function CorrectionForm({ poi, onClose }) {
           </select>
         </label>
 
+        {/* Only asked for a rename, because only a rename needs it. */}
+        {needsName && (
+          <label className="field">
+            <span className="field__label">What is it called now?</span>
+            <input
+              className="field__input"
+              type="text"
+              value={proposedName}
+              onChange={(e) => setProposedName(e.target.value)}
+              placeholder="e.g. Faculty of Engineering Block C"
+              maxLength={200}
+            />
+          </label>
+        )}
+
         <label className="field">
           <span className="field__label">
-            Tell us more {kind === 'renamed' && <em>(what should it be called?)</em>}
+            Tell us more
           </span>
           <textarea
             className="field__input"

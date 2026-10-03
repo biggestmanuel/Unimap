@@ -63,9 +63,6 @@ export function usePois() {
   // network. Distinct from `offline`: the browser can be online while the
   // origin is broken, and the user still needs to know this is saved data.
   const [fromCache, setFromCache] = useState(false);
-  // iOS can evict IndexedDB silently. Remembering that we wrote data lets us
-  // notice when it has gone missing and re-seed it.
-  const hadCache = useRef(false);
   const mounted = useRef(true);
 
   const reload = useCallback(async () => {
@@ -79,18 +76,12 @@ export function usePois() {
       setOffline(false);
       setFromCache(false);
       // Fire-and-forget: a cache failure must not affect this render.
-      hadCache.current = true;
       cachePois(geojson).catch(() => {});
       flushQueue().catch(() => {});
     } catch (err) {
       // Offline or the origin is failing: fall back to whatever was cached.
       const cached = await getCachedPois();
       if (cached?.geojson && mounted.current) {
-        // The database exists but is empty, having held data on a previous
-        // visit. That is the iOS eviction signature, so re-seed straight away.
-        if (hadCache.current && cached.savedAt < Date.now() - 60_000) {
-          fetchWithRetry(PAI_URL).then((fresh) => cachePois(fresh)).catch(() => {});
-        }
         setPois(normalizeCollection(cached.geojson));
         setStatus('ready');
         setOffline(true);

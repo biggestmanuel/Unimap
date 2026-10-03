@@ -229,6 +229,94 @@ test.describe('navigation', () => {
     await expect(page.getByRole('button', { name: /send report/i })).toBeEnabled();
   });
 
+  test('the rename option asks for the new name', async ({ page }) => {
+    // Regression: the form never collected a replacement name, so choosing
+    // "It has been renamed" always produced a 400 from the API and then sat
+    // in the offline queue forever.
+    await setup(page);
+
+    await page.getByRole('button', { name: /search campus/i }).click();
+    await page.getByPlaceholder(/search/i).first().fill('NEH');
+    await page.getByText('NEH').first().click();
+    await page.getByRole('button', { name: /report a problem/i }).click();
+
+    await page.getByLabel(/what is wrong/i).selectOption('renamed');
+
+    const nameField = page.getByLabel(/what is it called now/i);
+    await expect(nameField).toBeVisible();
+
+    // Still disabled until both the new name and some detail are given.
+    await page.locator('textarea').fill('officially renamed last semester');
+    await expect(page.getByRole('button', { name: /send report/i })).toBeDisabled();
+
+    await nameField.fill('Faculty of Engineering Block C');
+    await expect(page.getByRole('button', { name: /send report/i })).toBeEnabled();
+  });
+
+  test('a rate-limited report says so instead of claiming to be saved', async ({ page }) => {
+    // Regression: a 429 fell through to the queue, which reported success even
+    // when it could not store anything -- telling the student their report was
+    // safe while it was discarded.
+    await setup(page);
+    await page.route('**/api/corrections', (r) =>
+      r.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        headers: { 'Retry-After': '20' },
+        body: JSON.stringify({ error: 'rate_limited' }),
+      }),
+    );
+
+    await page.getByRole('button', { name: /search campus/i }).click();
+    await page.getByPlaceholder(/search/i).first().fill('NEH');
+    await page.getByText('NEH').first().click();
+    await page.getByRole('button', { name: /report a problem/i }).click();
+
+    await page.locator('textarea').fill('this building has been demolished');
+    await page.getByRole('button', { name: /send report/i }).click();
+
+    await expect(page.getByText(/too many reports at once/i)).toBeVisible();
+    // And definitely not the false confirmation.
+    await expect(page.getByText(/will send when you are back online/i)).toHaveCount(0);
+    await expect(page.getByText(/thank you/i)).toHaveCount(0);
+  });
+
+  test('directions still work before any GPS fix', async ({ page }) => {
+    // Regression: the campus gate refused navigation until a position had been
+    // checked, so the "Directions here" button silently did nothing on a fresh
+    // install.
+    await setup(page);
+
+    await page.getByRole('button', { name: /search campus/i }).click();
+    await page.getByPlaceholder(/search/i).first().fill('NEH');
+    await page.getByText('NEH').first().click();
+
+    await page.getByRole('button', { name: /directions here/i }).click();
+
+    const panel = page.locator('.route-panel');
+    await expect(panel).toBeVisible();
+    // No off-campus notice should be shown when there is no fix at all.
+    await expect(page.getByText(/you are off campus/i)).toHaveCount(0);
+  });
+
+  test('directions are refused once a fix says we are off campus', async ({ page }) => {
+    // Lagos is 400 km away. The gate exists so the app does not present a
+    // straight line from there as campus guidance.
+    await setup(page);
+    await locateAt(page, { lat: 6.5244, lng: 3.3792 });
+
+    await page.getByRole('button', { name: /use my location/i }).click();
+    await expect(page.getByText(/you are off campus/i)).toBeVisible();
+
+    await page.getByRole('button', { name: /search campus/i }).click();
+    await page.getByPlaceholder(/search/i).first().fill('NEH');
+    await page.getByText('NEH').first().click();
+
+    // The route panel must not appear: the request was never made.
+    await page.waitForTimeout(300);
+    await expect(page.locator('.route-panel')).toHaveCount(0);
+  });
+
   test('student text is never executed as HTML', async ({ page }) => {
     await setup(page);
 

@@ -26,12 +26,16 @@ export function useGeolocation({
 
   const latest = useRef(null);
   const watchId = useRef(null);
+  // Tracked separately from `watchId` because the "already watching" guard
+  // has to hold even if a platform hands back a falsy id.
+  const watching = useRef(false);
 
   const clear = useCallback(() => {
     if (watchId.current != null && typeof navigator !== 'undefined') {
       navigator.geolocation?.clearWatch(watchId.current);
-      watchId.current = null;
     }
+    watchId.current = null;
+    watching.current = false;
   }, []);
 
   const start = useCallback(() => {
@@ -40,6 +44,10 @@ export function useGeolocation({
       setError('This browser cannot report your location.');
       return;
     }
+
+    // Starting twice would leave the first watch running: `clear` only knows
+    // about the most recent id, so the orphan keeps firing forever.
+    if (watching.current) return;
 
     setStatus('locating');
     setError(null);
@@ -66,11 +74,19 @@ export function useGeolocation({
         setStatus('denied');
         setError('Location permission was declined. Turn it on to get directions.');
         clear();
-      } else if (err.code === 3) {
+        return;
+      }
+
+      // Anything else is transient, but the watch keeps retrying and may yet
+      // succeed. Drop back to 'idle' if no fix ever arrived, so the "Use my
+      // location" button comes back -- otherwise a single timeout left the
+      // user stuck on a spinner with no way to retry.
+      if (err.code === 3) {
         setError('Taking too long to find you. Try near a window.');
       } else {
         setError('Could not get a position fix.');
       }
+      setStatus((s) => (s === 'locating' ? 'idle' : s));
     };
 
     if (watch) {
@@ -79,6 +95,7 @@ export function useGeolocation({
         maximumAge: maxAgeMs,
         timeout: timeoutMs,
       });
+      watching.current = true;
     } else {
       navigator.geolocation.getCurrentPosition(onSuccess, onError, {
         enableHighAccuracy: true,
