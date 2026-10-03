@@ -188,10 +188,17 @@ describe('listCorrectionsQuery', () => {
 });
 
 describe('reviewCorrectionSchema', () => {
-  it('requires a reviewer', () => {
-    expect(fields(reviewCorrectionSchema, { status: 'approved' })).toMatchObject({
-      reviewer: expect.any(String),
-    });
+  it('does not require a reviewer in the body', () => {
+    // The reviewer now comes from the authenticated session, so requiring it in
+    // the request body would only invite a client to send a forged one. See
+    // routes/corrections.js.
+    expect(reviewCorrectionSchema.safeParse({ status: 'approved' }).success).toBe(true);
+  });
+
+  it('still accepts a reviewer, which the route discards', () => {
+    expect(reviewCorrectionSchema.safeParse({ status: 'approved', reviewer: 'admin' }).success).toBe(
+      true,
+    );
   });
 
   it('accepts approve and reject', () => {

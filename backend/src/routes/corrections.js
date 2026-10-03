@@ -82,8 +82,15 @@ export default function createCorrectionRoutes(repo, { requireAdmin } = {}) {
     }
 
     try {
-      const { status, note, reviewer } = parsed.data;
-      const result = await repo.reviewCorrection(req.params.id, { status, note, reviewer });
+      // `reviewer` comes from the session, not the body -- see the note in
+      // routes/trace.js. A client-supplied reviewer would let an admin forge an
+      // audit entry naming someone else.
+      const { status, note } = parsed.data;
+      const result = await repo.reviewCorrection(req.params.id, {
+        status,
+        note,
+        reviewer: req.user.email,
+      });
       if (!result) return res.status(404).json({ error: 'not_found' });
       res.json(result);
     } catch (err) {

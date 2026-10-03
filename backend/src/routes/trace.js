@@ -172,7 +172,18 @@ export default function createTraceRoutes({ repo, graphRepo, requireAdmin }) {
       return res.status(400).json({ error: 'invalid_review', fields: formatIssues(parsed.error) });
     }
     try {
-      const updated = await repo.reviewTrace(req.params.id, parsed.data);
+      // The reviewer is taken from the session, never from the body.
+      //
+      // `reviewTraceSchema` still accepts a `reviewer` field, so a client can
+      // send one -- but it is discarded here. Anyone who can reach this route is
+      // authenticated, and attributing a moderation decision to a
+      // client-supplied string would let an admin forge the audit trail naming
+      // a colleague, or name someone who never logged in.
+      const updated = await repo.reviewTrace(req.params.id, {
+        status: parsed.data.status,
+        note: parsed.data.note,
+        reviewer: req.user.email,
+      });
       if (!updated) return res.status(404).json({ error: 'not_found' });
       res.json({ trace: publicTrace(updated) });
     } catch (err) {

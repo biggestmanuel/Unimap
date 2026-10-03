@@ -117,10 +117,16 @@ export const listCorrectionsQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+/**
+ * Reviewing a correction.
+ *
+ * As with `reviewTraceSchema`, `reviewer` is accepted but ignored; the route
+ * takes it from the authenticated session.
+ */
 export const reviewCorrectionSchema = z.object({
   status: z.enum(['approved', 'rejected']),
   note: z.string().trim().max(1000).optional(),
-  reviewer: z.string().trim().min(1).max(200),
+  reviewer: z.string().trim().min(1).max(200).optional(),
 });
 
 /**
@@ -197,10 +203,18 @@ export const listTracesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
+/**
+ * Reviewing a walk trace.
+ *
+ * `reviewer` is accepted for backward compatibility with existing clients but
+ * is IGNORED -- the route takes the reviewer from the authenticated session.
+ * Kept optional rather than removed so an older frontend does not start failing
+ * validation on a field it still sends.
+ */
 export const reviewTraceSchema = z.object({
   status: z.enum(['approved', 'rejected', 'merged']),
   note: z.string().trim().max(1000).optional(),
-  reviewer: z.string().trim().min(1).max(200),
+  reviewer: z.string().trim().min(1).max(200).optional(),
 });
 
 export const graphStatsQuery = z.object({

@@ -32,12 +32,28 @@ const SEED = [
 
 const NEH = SEED[0].id;
 
+const ADMIN = { id: 'aaaaaaaa-1111-4111-8111-111111111111', email: 'admin@rsu.edu.ng', role: 'admin' };
+
+/**
+ * A fresh app per test.
+ *
+ * Returns the app itself, so most call sites stay `request(makeApp())`. The
+ * admin-gate stub populates `req.user` with a fixed admin identity, because the
+ * moderation routes read the reviewer from the session -- a gate that only
+ * called `next()` would leave it undefined and turn every review into a 500.
+ */
 function makeApp() {
-  // Each test builds a fresh app, so clear the shared rate-limit buckets too.
-  // Otherwise a file that submits many corrections throttles itself partway
-  // through and the failure looks like a routing bug.
+  // Clear the shared rate-limit buckets with the app. Otherwise a file that
+  // submits many corrections throttles itself partway through and the failure
+  // looks like a routing bug.
   resetAllLimiters();
-  return createApp({ repo: createMemoryRepo(SEED), requireAdmin: (req, res, next) => next() });
+  return createApp({
+    repo: createMemoryRepo(SEED),
+    requireAdmin: (req, res, next) => {
+      req.user = ADMIN;
+      next();
+    },
+  });
 }
 
 describe('GET /health', () => {
@@ -261,12 +277,24 @@ describe('admin moderation', () => {
     expect(poi.body.lng).toBeCloseTo(6.9811, 5);
   });
 
-  it('requires a reviewer on the review call', async () => {
+  it('accepts a review with no reviewer in the body', async () => {
+    // The reviewer comes from the session now. Requiring it in the body would
+    // only invite a client to send a forged one.
     const app = makeApp();
     const id = await submit(app);
     const res = await request(app)
       .patch(`/api/admin/corrections/${id}`)
       .send({ status: 'approved' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('approved');
+  });
+
+  it('still rejects an unknown status', async () => {
+    const app = makeApp();
+    const id = await submit(app);
+    const res = await request(app)
+      .patch(`/api/admin/corrections/${id}`)
+      .send({ status: 'pending' });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('invalid_review');
   });
@@ -274,7 +302,7 @@ describe('admin moderation', () => {
   it('404s when reviewing an unknown correction', async () => {
     const res = await request(makeApp())
       .patch('/api/admin/corrections/99999999-9999-4999-8999-999999999999')
-      .send({ status: 'approved', reviewer: 'admin' });
+      .send({ status: 'approved' });
     expect(res.status).toBe(404);
   });
 
