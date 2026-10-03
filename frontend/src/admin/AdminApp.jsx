@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const API = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -34,16 +34,29 @@ export default function AdminApp() {
   const [users, setUsers] = useState([]);
   const [flash, setFlash] = useState(null);
 
+  // Session token held in a ref, not state: nothing here re-renders when it
+  // changes, and a page reload drops it by design.
+  const tokenRef = useRef(null);
+
   const api = useCallback(
     async (path, options = {}) => {
+      const token = tokenRef.current;
       const res = await fetch(`${API}${path}`, {
         ...options,
-        headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
-        // Session cookie. Deliberately not a bearer token in localStorage:
-        // an XSS here would be far more damaging.
-        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.headers ?? {}),
+        },
+        // A bearer token rather than the session cookie, because the console
+        // is served from a different origin than the API. A cross-site cookie
+        // would need SameSite=None plus an exact-origin allowlist, and the
+        // browser would then send it automatically on any request -- which is
+        // CSRF. A token in a header is attached deliberately, so forgery is
+        // structurally impossible. The cost is no persistence across reloads.
       });
       if (res.status === 401) {
+        tokenRef.current = null;
         setUser(null);
         throw new Error('not_authenticated');
       }
@@ -66,7 +79,7 @@ export default function AdminApp() {
     try {
       const [s, c, t, g, u] = await Promise.all([
         api('/admin/summary'),
-        api('/corrections?status=pending'),
+        api('/admin/corrections?status=pending'),
         api('/traces?status=pending'),
         api('/graph/stats'),
         api('/admin/users'),
@@ -98,6 +111,7 @@ export default function AdminApp() {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
+      tokenRef.current = body.token;
       setUser(body.user);
     } catch (err) {
       setLoginError(err.message === 'invalid_credentials' ? 'Wrong email or password.' : err.message);
@@ -108,6 +122,7 @@ export default function AdminApp() {
 
   async function logout() {
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
+    tokenRef.current = null;
     setUser(null);
   }
 

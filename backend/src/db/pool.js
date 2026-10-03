@@ -46,3 +46,24 @@ export function rowToPoi(row) {
     verifiedAt: row.verified_at,
   };
 }
+
+/**
+ * Wrap a sessions row into the shape the rest of the app expects.
+ *
+ * Postgres hands back snake_case columns, but `resolveUser` reads
+ * `session.userId` and `session.expiresAt` -- the camelCase names memoryRepo
+ * produces. Returning the raw row makes both undefined, which fails in two
+ * silent ways: the user lookup gets `undefined` and every login 401s, and
+ * `new Date(undefined)` is NaN, so the expiry check never fires and sessions
+ * would never actually time out.
+ */
+export function rowToSession(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tokenHash: row.token_hash,
+    expiresAt: row.expires_at,
+    userAgent: row.user_agent,
+  };
+}

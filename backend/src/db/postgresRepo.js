@@ -1,4 +1,4 @@
-import { getPool, rowToPoi } from './pool.js';
+import { getPool, rowToPoi, rowToSession } from './pool.js';
 import { verifyPassword } from '../lib/auth.js';
 
 /**
@@ -264,7 +264,7 @@ export function createPostgresRepo() {
          RETURNING *`,
         [userId, tokenHash, expiresAt, userAgent ?? null],
       );
-      return rows[0];
+      return rowToSession(rows[0]);
     },
 
     async findSessionByTokenHash(tokenHash) {
@@ -273,7 +273,7 @@ export function createPostgresRepo() {
         'SELECT * FROM sessions WHERE token_hash = $1',
         [tokenHash],
       );
-      return rows[0] ?? null;
+      return rowToSession(rows[0]);
     },
 
     async deleteSessionByTokenHash(tokenHash) {
