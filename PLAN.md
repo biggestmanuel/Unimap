@@ -23,22 +23,6 @@ Items marked ✅ are done.
 - ✅ Popular-place chips, with **unresolved names reported** rather than silently dropped
 - ✅ Popups, skeleton loader, error + retry state
 
-## Phase 2 — Navigation parity
-
-- ✅ A* over the walk graph, built **per-vertex** from OSM (`backend/src/graph/router.js`)
-- ✅ Straight-line fallback when no graph route exists
-- ✅ POI / GPS position snapping to the nearest edge
-- ✅ Turn-by-turn legs with named ways
-- ⚠️ **OSRM dropped, deliberately.** RSU is ~2 km across; A* over ~1,500
-  segments is instant in-process and, unlike a self-hosted OSRM container,
-  keeps working with no network — which Phase 3 requires. `VITE_OSRM_BASE_URL`
-  is no longer needed.
-- [ ] Expose the router over HTTP (`POST /api/route`) — graph load + validation
-- [ ] GPS tracking via `watchPosition`, moving the user marker imperatively (M)
-- [ ] Arrival detection + "I'm Lost" (S)
-- [ ] Theme toggle (S)
-- ✅ `events.json` deleted (it was an empty stub)
-
 ## Phase 2 — Navigation parity ✅
 
 - ✅ A* over the walk graph, built **per-vertex** from OSM (`backend/src/graph/router.js`)
