@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createUserSchema, formatIssues } from '../lib/validation.js';
+import { createUserSchema, updateUserSchema, formatIssues } from '../lib/validation.js';
 import { hashPassword, checkPasswordStrength, publicUser } from '../lib/auth.js';
 
 /**
@@ -96,6 +96,112 @@ export default function createAdminRoutes({ repo, graphRepo, requireAdmin }) {
       });
 
       res.status(201).json({ user: publicUser(created) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── standing an account down ─────────────────────────────────────────
+  // Deliberately separate from DELETE. Disabling keeps the row, its audit
+  // trail and its review history; it only stops the account authenticating.
+  // Most of the time that is what you want, because it is reversible and it
+  // leaves the record intact.
+  router.patch('/admin/users/:id', async (req, res, next) => {
+    const parsed = updateUserSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_user', fields: formatIssues(parsed.error) });
+    }
+
+    try {
+      const target = await repo.getUser(req.params.id);
+      if (!target) return res.status(404).json({ error: 'not_found' });
+
+      // Standing yourself down is almost always a mistake, and it locks the
+      // console on the next request with no way back through the UI. Refuse it
+      // here rather than letting someone discover that the hard way.
+      if (parsed.data.disabled === true && target.id === req.user.id) {
+        return res.status(409).json({ error: 'cannot_disable_self' });
+      }
+
+      const updated = await repo.setUserDisabled(target.id, parsed.data.disabled);
+
+      // A disabled account must not keep a working session, so disabling
+      // revokes in the same action rather than leaving the token live for its
+      // remaining lifetime.
+      const revoked = parsed.data.disabled === true
+        ? await repo.deleteSessionsForUser(target.id)
+        : 0;
+
+      await repo.appendAudit?.({
+        actor: req.user.email,
+        action: parsed.data.disabled === true ? 'user.disabled' : 'user.enabled',
+        entityType: 'user',
+        entityId: target.id,
+        beforeData: { disabled: target.disabledAt != null },
+        afterData: { disabled: parsed.data.disabled === true },
+      });
+
+      res.json({ user: publicUser(updated), revokedSessions: revoked });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/admin/users/:id/revoke-sessions', async (req, res, next) => {
+    try {
+      const target = await repo.getUser(req.params.id);
+      if (!target) return res.status(404).json({ error: 'not_found' });
+
+      // The reason this endpoint exists: changing a password does not touch
+      // sessions, because a session is keyed by its own token hash rather than
+      // by the password. Without this, a password reset alone cannot kick out
+      // whoever prompted it.
+      const revoked = await repo.deleteSessionsForUser(target.id);
+
+      await repo.appendAudit?.({
+        actor: req.user.email,
+        action: 'user.sessions_revoked',
+        entityType: 'user',
+        entityId: target.id,
+        afterData: { revoked },
+      });
+
+      res.json({ revokedSessions: revoked });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/admin/users/:id', async (req, res, next) => {
+    try {
+      const target = await repo.getUser(req.params.id);
+      if (!target) return res.status(404).json({ error: 'not_found' });
+
+      if (target.id === req.user.id) {
+        return res.status(409).json({ error: 'cannot_delete_self' });
+      }
+
+      // Refuse to remove the last route into the admin panel. An empty admin
+      // set means the only way back is direct SQL against the database, which
+      // is exactly the failure this whole feature exists to prevent.
+      const admins = (await repo.listUsers()).filter(
+        (u) => u.role === 'admin' && u.disabledAt == null && u.id !== target.id,
+      );
+      if (target.role === 'admin' && admins.length === 0) {
+        return res.status(409).json({ error: 'last_admin' });
+      }
+
+      await repo.deleteUser(target.id);
+
+      await repo.appendAudit?.({
+        actor: req.user.email,
+        action: 'user.deleted',
+        entityType: 'user',
+        entityId: target.id,
+        beforeData: { email: target.email, role: target.role },
+      });
+
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }

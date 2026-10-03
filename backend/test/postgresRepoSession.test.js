@@ -40,6 +40,7 @@ mock.module('../src/db/pool.js', {
     getPool: () => fakePool,
     rowToPoi: (r) => r,
     rowToSession: (row) => (row ? { [MARKER]: true } : null),
+    rowToUser: (r) => r,
     closePool: async () => {},
   },
 });

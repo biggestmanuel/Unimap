@@ -1,5 +1,29 @@
-import { getPool, rowToPoi, rowToSession } from './pool.js';
+import { getPool, rowToPoi, rowToSession, rowToUser } from './pool.js';
 import { verifyPassword } from '../lib/auth.js';
+import { simplifyLine, dedupeConsecutive } from '../graph/simplify.js';
+import { lineLengthMeters } from '../graph/geo.js';
+
+/**
+ * How hard to clean a trace before it becomes geometry.
+ *
+ * Deliberately gentle. A person walking with a phone is a far better witness
+ * to where a path goes than anything derived from aerial imagery, so the aim
+ * is to remove jitter without smoothing away a real bend -- and if an admin
+ * disagrees with the shape, the trace row is still intact and they can reject
+ * it instead.
+ */
+const TRACE_SIMPLIFY_METERS = 3;
+const TRACE_DEDUPE_METERS = 1;
+
+/**
+ * Shortest run worth adding to the graph.
+ *
+ * Checked on length rather than vertex count, because a stationary phone can
+ * produce two distinct coordinates a metre apart: that survives the 0.5 m
+ * ingest filter and is technically a LineString, but a 1 m footpath is noise
+ * that costs a node in every routing search and helps nobody.
+ */
+const MIN_EDGE_METERS = 5;
 
 /**
  * Postgres repository.
@@ -215,10 +239,39 @@ export function createPostgresRepo() {
     async getUser(id) {
       const pool = getPool();
       const { rows } = await pool.query(
-        'SELECT id, email, display_name, role FROM users WHERE id = $1',
+        'SELECT id, email, display_name, role, disabled_at FROM users WHERE id = $1',
         [id],
       );
-      return rows[0] ?? null;
+      return rows[0] ? rowToUser(rows[0]) : null;
+    },
+
+    async setUserDisabled(id, disabled) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        `UPDATE users
+            SET disabled_at = CASE WHEN $2 THEN now() ELSE NULL END
+          WHERE id = $1
+        RETURNING id, email, display_name, role, disabled_at`,
+        [id, Boolean(disabled)],
+      );
+      return rows[0] ? rowToUser(rows[0]) : null;
+    },
+
+    async deleteSessionsForUser(userId) {
+      const pool = getPool();
+      const { rowCount } = await pool.query(
+        'DELETE FROM sessions WHERE user_id = $1',
+        [userId],
+      );
+      return rowCount ?? 0;
+    },
+
+    async deleteUser(id) {
+      const pool = getPool();
+      // sessions.user_id is ON DELETE CASCADE, so live tokens die with the
+      // account rather than lingering as unresolvable rows.
+      const { rowCount } = await pool.query('DELETE FROM users WHERE id = $1', [id]);
+      return (rowCount ?? 0) > 0;
     },
 
     async createUser({ email, displayName, role, passwordHash }) {
@@ -235,7 +288,7 @@ export function createPostgresRepo() {
     async listUsers() {
       const pool = getPool();
       const { rows } = await pool.query(
-        `SELECT u.id, u.email, u.display_name, u.role, u.created_at,
+        `SELECT u.id, u.email, u.display_name, u.role, u.created_at, u.disabled_at,
                 count(s.id)::int AS active_sessions
            FROM users u
            LEFT JOIN sessions s
@@ -243,7 +296,7 @@ export function createPostgresRepo() {
           GROUP BY u.id
           ORDER BY u.created_at DESC`,
       );
-      return rows;
+      return rows.map(rowToUser);
     },
 
     async verifyUserPassword(id, password) {
@@ -384,6 +437,135 @@ export function createPostgresRepo() {
         status: r.status,
         createdAt: r.created_at,
       };
+    },
+
+    /**
+     * Turn an approved trace into a real footpath edge.
+     *
+     * Runs in one transaction: the edge insert and the status change either
+     * both land or neither does, so a failure cannot leave a trace marked
+     * merged with no geometry behind it -- which would be silently
+     * unrecoverable through the API.
+     */
+    async mergeTraceIntoGraph(id, { reviewer, note } = {}) {
+      const pool = getPool();
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // FOR UPDATE so two admins merging the same trace at once cannot both
+        // read status='approved' and both insert.
+        const { rows } = await client.query(
+          `SELECT id, geom, point_count, distance_m, max_off_graph_m, note,
+                  status, created_at
+             FROM walk_traces
+            WHERE id = $1
+              FOR UPDATE`,
+          [id],
+        );
+        if (rows.length === 0) {
+          await client.query('ROLLBACK');
+          return null;
+        }
+        const t = rows[0];
+
+        if (t.merged_edge_id != null || t.status === 'merged') {
+          await client.query('ROLLBACK');
+          const err = new Error('already merged');
+          err.code = 'already_merged';
+          throw err;
+        }
+
+        // Simplify before storing, for the reason documented in
+        // graph/simplify.js: buildGraph splits every edge at every vertex, so
+        // raw GPS jitter would add thousands of routing nodes per trace.
+        const geojson = await client.query(
+          'SELECT ST_AsGeoJSON(geom)::json AS geo FROM walk_traces WHERE id = $1',
+          [id],
+        );
+        const geometry = geojson.rows[0]?.geo;
+        if (!geometry) {
+          await client.query('ROLLBACK');
+          const err = new Error('trace has no geometry');
+          err.code = 'no_geometry';
+          throw err;
+        }
+
+        const coords = geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+        const cleaned = dedupeConsecutive(coords, TRACE_DEDUPE_METERS);
+        const simplified = simplifyLine(cleaned, TRACE_SIMPLIFY_METERS);
+
+        if (simplified.length < 2 || lineLengthMeters(simplified) < MIN_EDGE_METERS) {
+          await client.query('ROLLBACK');
+          const err = new Error('trace is too short to become an edge');
+          err.code = 'too_short';
+          throw err;
+        }
+
+        const lineGeoJson = JSON.stringify({
+          type: 'LineString',
+          coordinates: simplified.map((p) => [p.lng, p.lat]),
+        });
+
+        // footpath, not corridor: a hand-recorded path is a shortcut, and
+        // claiming it is a backbone road would over-trust data quality. The
+        // router only uses a footpath when it can get you back onto a
+        // corridor, so a disconnected one is inert rather than misleading.
+        const edge = await client.query(
+          `INSERT INTO graph_edges (geom, edge_class, name, source, surface)
+           VALUES (ST_GeomFromGeoJSON($1), 'footpath', $2, 'walk-trace', NULL)
+           RETURNING id, edge_class, name, source`,
+          [lineGeoJson, t.note ? `Walk trace ${String(t.id).slice(0, 8)}` : null],
+        );
+
+        const updated = await client.query(
+          `UPDATE walk_traces
+              SET status = 'merged',
+                  reviewed_by = $2,
+                  reviewed_at = now(),
+                  review_note = COALESCE($3, review_note),
+                  merged_edge_id = $4
+            WHERE id = $1
+          RETURNING id, point_count, distance_m, max_off_graph_m, note, status, created_at`,
+          [id, reviewer ?? null, note ?? null, edge.rows[0].id],
+        );
+
+        await client.query('COMMIT');
+
+        const r = updated.rows[0];
+        return {
+          edge: {
+            id: edge.rows[0].id,
+            edgeClass: edge.rows[0].edge_class,
+            name: edge.rows[0].name,
+            source: edge.rows[0].source,
+            vertices: simplified.length,
+            // Handed to graphRepo.edgeAdded so the in-memory graph
+            // implementation, which has no database to re-read, can append the
+            // same geometry. The Postgres implementation ignores it.
+            coords: simplified,
+          },
+          trace: {
+            id: r.id,
+            pointCount: r.point_count,
+            distanceMeters: Number(r.distance_m),
+            maxOffGraphMeters: r.max_off_graph_m == null ? null : Number(r.max_off_graph_m),
+            note: r.note,
+            status: r.status,
+            createdAt: r.created_at,
+          },
+        };
+      } catch (err) {
+        // Only roll back if we actually opened a transaction; a failed BEGIN
+        // or an already-issued ROLLBACK would otherwise raise a second error
+        // and hide the real one.
+        try {
+          await client.query('ROLLBACK');
+        } catch { /* already rolled back */ }
+        throw err;
+      } finally {
+        client.release();
+      }
     },
   };
 }

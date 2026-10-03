@@ -57,6 +57,13 @@ export default function createAuthRoutes({ repo }) {
         return res.status(401).json({ error: 'invalid_credentials' });
       }
 
+      // Refused with the same error as a wrong password: a disabled account
+      // that says "your account is disabled" confirms the address is
+      // registered to anyone who guesses it.
+      if (user.disabledAt != null) {
+        return res.status(401).json({ error: 'invalid_credentials' });
+      }
+
       const token = newSessionToken();
       await repo.createSession({
         userId: user.id,
@@ -127,7 +134,18 @@ export async function resolveUser(req, repo) {
     await repo.deleteSessionByTokenHash(hashToken(token));
     return null;
   }
-  return repo.getUser(session.userId);
+
+  const user = await repo.getUser(session.userId);
+  if (!user) return null;
+
+  // A session outlives an account being deleted or disabled, so drop the
+  // token here rather than letting a stale one linger until it expires.
+  if (user.disabledAt != null) {
+    await repo.deleteSessionByTokenHash(hashToken(token));
+    return null;
+  }
+
+  return user;
 }
 
 /**
@@ -143,6 +161,10 @@ export function makeRequireAdmin({ repo }) {
     try {
       const user = await resolveUser(req, repo);
       if (!user) return res.status(401).json({ error: 'not_authenticated' });
+
+      // Checked here rather than only at login, so an account disabled while
+      // its owner is already signed in loses access on the next request
+      // instead of staying privileged until its session expires.
       if (user.role !== 'admin') return res.status(403).json({ error: 'admin_required' });
       req.user = user;
       next();

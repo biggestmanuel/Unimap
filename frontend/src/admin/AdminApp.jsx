@@ -8,6 +8,27 @@ function fmt(meters) {
 }
 
 /**
+ * Turn an API error code into something a person can act on.
+ *
+ * The API speaks in codes (`last_admin`, `already_merged`); an admin reading
+ * the console should not have to know that. Unrecognised codes fall through
+ * unchanged so a new server error is still visible rather than swallowed.
+ */
+const ERROR_TEXT = {
+  last_admin: 'That is the last active admin — the console would be left with no way in.',
+  cannot_delete_self: 'You cannot delete your own account.',
+  cannot_disable_self: 'You cannot disable your own account.',
+  already_merged: 'That trace has already been merged into the map.',
+  trace_too_short: 'That trace is too short to be a usable path.',
+  not_authenticated: 'Your session has ended. Sign in again.',
+  account_disabled: 'That account has been disabled.',
+};
+
+function explain(code) {
+  return ERROR_TEXT[code] ?? code;
+}
+
+/**
  * Admin console.
  *
  * A single self-contained screen rather than a router: there are four queues
@@ -154,6 +175,93 @@ export default function AdminApp() {
     }
   }
 
+  /**
+   * Merge a trace into the walk graph.
+   *
+   * The only action in the console that changes routing, so it is the one that
+   * asks first: the geometry is cleaned up automatically (jitter removed, real
+   * bends kept) and becomes a footpath. That is much cheaper than adding a
+   * footpath by hand in OpenStreetMap, which is what this used to tell you to
+   * do instead.
+   */
+  async function mergeTrace(id) {
+    const ok = window.confirm(
+      'Add this path to the walk graph as a footpath?\n\n'
+      + 'GPS jitter is cleaned up automatically. It can be removed later if it '
+      + 'turns out to be wrong.',
+    );
+    if (!ok) return;
+    setFlash(null);
+    try {
+      const body = await api(`/traces/${id}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ note: null }),
+      });
+      const e = body.edge;
+      setFlash(
+        `Merged. Added a ${e.vertices}-point footpath to the graph `
+        + `(${body.stats.totalWays} ways total).`,
+      );
+      refresh();
+    } catch (err) {
+      setFlash(explain(err.message));
+    }
+  }
+
+  async function setUserDisabled(id, disabled) {
+    setFlash(null);
+    try {
+      const body = await api(`/admin/users/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ disabled }),
+      });
+      setFlash(
+        disabled
+          ? `Account disabled. ${body.revokedSessions} session(s) revoked.`
+          : 'Account re-enabled.',
+      );
+      refresh();
+    } catch (err) {
+      setFlash(explain(err.message));
+    }
+  }
+
+  async function revokeSessions(id) {
+    setFlash(null);
+    try {
+      const body = await api(`/admin/users/${id}/revoke-sessions`, { method: 'POST' });
+      // Saying "0" is more useful than silence: it tells the admin the request
+      // worked and there was nothing signed in.
+      setFlash(
+        body.revokedSessions === 0
+          ? 'That account had no active sessions.'
+          : `Revoked ${body.revokedSessions} session(s).`,
+      );
+      refresh();
+    } catch (err) {
+      setFlash(explain(err.message));
+    }
+  }
+
+  async function deleteUser(id, email) {
+    // Spelled out rather than a bare confirm, because this is the one action
+    // here that cannot be undone from the interface.
+    const ok = window.confirm(
+      `Permanently delete ${email}?\n\n`
+      + 'Their sessions go with them. Audit history is kept, but the account '
+      + 'cannot be restored from here.',
+    );
+    if (!ok) return;
+    setFlash(null);
+    try {
+      await api(`/admin/users/${id}`, { method: 'DELETE' });
+      setFlash('Account deleted.');
+      refresh();
+    } catch (err) {
+      setFlash(explain(err.message));
+    }
+  }
+
   if (booting) return <p className="admin-boot">Loading…</p>;
 
   if (!user) {
@@ -268,8 +376,8 @@ export default function AdminApp() {
             <h2>Pending walk traces</h2>
             <p className="admin-hint">
               Furthest off the mapped network first — those are filling a real gap.
-              Approving does not add geometry; merge the path into OpenStreetMap or
-              re-run the importer with the corrected data.
+              Merging turns the recorded path into a real footpath, cleaned up
+              automatically, and it starts routing immediately.
             </p>
             {traces.length === 0 && <p className="admin-empty">No traces waiting.</p>}
             <ul className="admin-list">
@@ -285,8 +393,8 @@ export default function AdminApp() {
                   </div>
                   {t.note && <p className="admin-item__body">{t.note}</p>}
                   <div className="admin-item__actions">
-                    <button type="button" onClick={() => reviewTrace(t.id, 'merged')}>
-                      Mark merged
+                    <button type="button" onClick={() => mergeTrace(t.id)}>
+                      Merge into map
                     </button>
                     <button
                       type="button"
@@ -360,21 +468,60 @@ export default function AdminApp() {
             <h2>Users</h2>
             <table className="admin-table">
               <thead>
-                <tr><th>Email</th><th>Role</th><th>Sessions</th><th>Created</th></tr>
+                <tr>
+                  <th>Email</th><th>Role</th><th>Sessions</th><th>Created</th><th>Actions</th>
+                </tr>
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.id}>
-                    <td>{u.email}</td>
+                  <tr key={u.id} className={u.disabledAt ? 'is-disabled' : undefined}>
+                    <td>
+                      {u.email}
+                      {u.disabledAt && (
+                        <span className="admin-badge admin-badge--warn">disabled</span>
+                      )}
+                    </td>
                     <td>
                       <span className={u.role === 'admin' ? 'admin-badge' : ''}>{u.role}</span>
                     </td>
                     <td>{u.activeSessions ?? '–'}</td>
                     <td>{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '–'}</td>
+                    <td className="admin-row-actions">
+                      <button
+                        type="button"
+                        onClick={() => setUserDisabled(u.id, !u.disabledAt)}
+                        disabled={u.email === user.email}
+                        title={u.email === user.email ? 'You cannot do this to yourself' : undefined}
+                      >
+                        {u.disabledAt ? 'Enable' : 'Disable'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revokeSessions(u.id)}
+                        disabled={u.email === user.email}
+                        title="Sign this account out everywhere"
+                      >
+                        Revoke sessions
+                      </button>
+                      <button
+                        type="button"
+                        className="is-danger"
+                        onClick={() => deleteUser(u.id, u.email)}
+                        disabled={u.email === user.email}
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <p className="admin-hint">
+              Disabling keeps the account and its history but signs it out
+              everywhere. Revoking sessions is what a password reset cannot do
+              on its own, because a session is keyed by its own token rather
+              than by the password.
+            </p>
             <p className="admin-hint">
               Create another admin: <code>npm run user -- --email you@rsu.edu.ng --role admin</code>
             </p>

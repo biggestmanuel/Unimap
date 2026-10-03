@@ -165,6 +165,17 @@ export const createUserSchema = z.object({
 });
 
 /**
+ * Standing an account down or bringing it back.
+ *
+ * Only the disable flag, and it must be explicit: a PATCH body of `{}` is a
+ * client bug rather than an instruction, and silently treating it as "enable"
+ * would be a way to undo a revocation by accident.
+ */
+export const updateUserSchema = z.object({
+  disabled: z.boolean(),
+}).strict();
+
+/**
  * A student-submitted walk trace.
  *
  * Points are [lng, lat] to match the rest of the API. Bounds are enforced

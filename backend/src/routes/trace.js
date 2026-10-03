@@ -114,6 +114,51 @@ export default function createTraceRoutes({ repo, graphRepo, requireAdmin }) {
     }
   });
 
+  // ── merge a trace into the walk graph ──────────────────────────────────
+  // This is the step that was missing: until now an approved trace was only a
+  // status change, so the loop the app advertises -- walk somewhere unmapped,
+  // record it, admin reviews it -- never actually improved routing. Nothing
+  // wrote to graph_edges except the OSM importer.
+  router.post('/traces/:id/merge', admin, async (req, res, next) => {
+    try {
+      const merged = await repo.mergeTraceIntoGraph(req.params.id, {
+        reviewer: req.user.email,
+        note: typeof req.body?.note === 'string' ? req.body.note.slice(0, 1000) : null,
+      });
+
+      if (!merged) return res.status(404).json({ error: 'not_found' });
+
+      // The graph repo caches the whole network in memory, so without this the new
+      // edge would not appear in routing until the process restarted. The
+      // in-memory implementation has to append as well as invalidate, since it
+      // has no database row to re-read.
+      await graphRepo.edgeAdded?.({
+        edgeClass: merged.edge.edgeClass,
+        name: merged.edge.name,
+        surface: null,
+        coords: merged.edge.coords,
+      });
+      graphRepo.invalidate?.();
+
+      res.json({
+        trace: publicTrace(merged.trace),
+        edge: merged.edge,
+        stats: await graphRepo.getStats(),
+      });
+    } catch (err) {
+      if (err?.code === 'already_merged') {
+        return res.status(409).json({ error: 'already_merged' });
+      }
+      // A trace that collapses below two points is not a path, and inserting it
+      // would violate the schema's own ST_NPoints >= 2 constraint. That is a
+      // bad submission, not a server fault.
+      if (err?.code === 'too_short') {
+        return res.status(422).json({ error: 'trace_too_short' });
+      }
+      next(err);
+    }
+  });
+
   router.patch('/traces/:id', admin, async (req, res, next) => {
     const parsed = reviewTraceSchema.safeParse(req.body);
     if (!parsed.success) {

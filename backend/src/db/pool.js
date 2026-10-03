@@ -67,3 +67,21 @@ export function rowToSession(row) {
     userAgent: row.user_agent,
   };
 }
+
+/**
+ * Wrap a users row.
+ *
+ * `disabledAt` is the one field the admin gate reads, and it has to survive
+ * the trip out of the database: without it on this object a disabled account is
+ * indistinguishable from an active one at exactly the moment that matters.
+ */
+export function rowToUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name ?? null,
+    role: row.role,
+    disabledAt: row.disabled_at ?? null,
+  };
+}

@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { verifyPassword } from '../lib/auth.js';
+import { simplifyLine, dedupeConsecutive } from '../graph/simplify.js';
+import { lineLengthMeters } from '../graph/geo.js';
+
+const TRACE_SIMPLIFY_METERS = 3;
+const TRACE_DEDUPE_METERS = 1;
+const MIN_EDGE_METERS = 5;
 
 /**
  * In-memory repository.
@@ -16,30 +22,21 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
   const sessions = new Map();
   const audit = [];
   const traces = new Map();
+  const traceEdges = [];
 
   for (const u of users) {
-    userRows.set(u.id ?? randomUUID(), {
-      id: u.id ?? randomUUID(),
+    const id = u.id ?? randomUUID();
+    userRows.set(id, {
+      id,
       email: (u.email ?? '').toLowerCase(),
       displayName: u.displayName ?? null,
       role: u.role ?? 'student',
       passwordHash: u.passwordHash,
+      // Seeded disabled when a test wants to start from a stood-down
+      // account. Must be present rather than undefined, because the login
+      // route and the admin gate both test it for `!= null`.
+      disabledAt: u.disabledAt ?? null,
     });
-  }
-
-  // Seeded rows above may disagree on id if one was omitted; rebuild cleanly.
-  if (users.length > 0) {
-    userRows.clear();
-    for (const u of users) {
-      const id = u.id ?? randomUUID();
-      userRows.set(id, {
-        id,
-        email: (u.email ?? '').toLowerCase(),
-        displayName: u.displayName ?? null,
-        role: u.role ?? 'student',
-        passwordHash: u.passwordHash,
-      });
-    }
   }
 
   for (const p of seed) {
@@ -176,6 +173,33 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       return [...userRows.values()];
     },
 
+    async setUserDisabled(id, disabled) {
+      const user = userRows.get(id);
+      if (!user) return null;
+      user.disabledAt = disabled ? new Date().toISOString() : null;
+      return user;
+    },
+
+    async deleteSessionsForUser(userId) {
+      let n = 0;
+      for (const [tokenHash, session] of sessions) {
+        if (session.userId !== userId) continue;
+        sessions.delete(tokenHash);
+        n += 1;
+      }
+      return n;
+    },
+
+    async deleteUser(id) {
+      const user = userRows.get(id);
+      if (!user) return false;
+      userRows.delete(id);
+      // Mirrors the Postgres ON DELETE CASCADE, so the in-memory double behaves
+      // like the real thing rather than leaving sessions resolvable to nobody.
+      await this.deleteSessionsForUser(id);
+      return true;
+    },
+
     async verifyUserPassword(id, password) {
       const user = userRows.get(id);
       if (!user) return false;
@@ -273,6 +297,63 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       record.reviewedBy = reviewer;
       record.reviewedAt = new Date().toISOString();
       return record;
+    },
+
+    /**
+     * Merge into the in-memory graph.
+     *
+     * The memory repo has no graph_edges table, so the edge is appended to the
+     * rows array the graph repository was built from and the cache is dropped.
+     * Behaviourally equivalent to the Postgres path for the purposes of the
+     * route tests.
+     */
+    /** Edges created by mergeTraceIntoGraph, for tests to assert against. */
+    listTraceEdges() {
+      return [...traceEdges];
+    },
+
+    async mergeTraceIntoGraph(id, { reviewer, note } = {}) {
+      const record = traces.get(id);
+      if (!record) return null;
+      if (record.mergedEdgeId != null || record.status === 'merged') {
+        const err = new Error('already merged');
+        err.code = 'already_merged';
+        throw err;
+      }
+
+      const cleaned = dedupeConsecutive(record.coords, TRACE_DEDUPE_METERS);
+      const simplified = simplifyLine(cleaned, TRACE_SIMPLIFY_METERS);
+      if (simplified.length < 2 || lineLengthMeters(simplified) < MIN_EDGE_METERS) {
+        const err = new Error('trace is too short to become an edge');
+        err.code = 'too_short';
+        throw err;
+      }
+
+      const edgeId = randomUUID();
+      traceEdges.push({
+        id: edgeId,
+        edgeClass: 'footpath',
+        coords: simplified,
+        source: 'walk-trace',
+      });
+      record.coords = simplified;
+      record.mergedEdgeId = edgeId;
+      record.status = 'merged';
+      record.reviewedBy = reviewer ?? null;
+      record.reviewedAt = new Date().toISOString();
+      record.reviewNote = note ?? record.reviewNote;
+
+      return {
+        edge: {
+          id: edgeId,
+          edgeClass: 'footpath',
+          name: record.note ? `Walk trace ${String(record.id).slice(0, 8)}` : null,
+          source: 'walk-trace',
+          vertices: simplified.length,
+          coords: simplified,
+        },
+        trace: { ...record },
+      };
     },
   };
 }

@@ -94,6 +94,17 @@ export function createPostgresGraphRepo({ pool }) {
     invalidate() {
       cache = null;
     },
+
+    /**
+     * A new edge exists.
+     *
+     * A no-op on Postgres, where the row is already committed and dropping the
+     * cache is enough. Exists so a caller can say "this edge is new" without
+     * needing to know which implementation it holds.
+     */
+    async edgeAdded() {
+      cache = null;
+    },
   };
 }
 
@@ -120,6 +131,17 @@ export function createMemoryGraphRepo(rows = []) {
       return load().edges.length;
     },
     invalidate() {
+      cache = null;
+    },
+
+    /**
+     * Unlike the Postgres version this has to actually append, because there is
+     * no database behind it -- the row would exist only in this array. Without
+     * the append, invalidating the cache would reload the original rows and a
+     * merged trace would silently never appear in routing.
+     */
+    async edgeAdded(edge) {
+      rows.push(edge);
       cache = null;
     },
   };

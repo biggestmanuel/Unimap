@@ -292,3 +292,25 @@ button.is-danger,
 }
 
 .admin-table tr:last-child td { border-bottom: none; }
+
+/* A stood-down account stays legible rather than looking like an active one. */
+.admin-table tr.is-disabled td {
+  opacity: 0.55;
+}
+
+/* Three small buttons per row: keep them from stretching the table. */
+.admin-row-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.admin-row-actions button {
+  margin-left: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.admin-row-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

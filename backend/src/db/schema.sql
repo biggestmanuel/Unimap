@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
+-- Standing an account down without erasing it. The row, its audit trail and
+-- its review history all stay; the account simply stops passing the admin gate
+-- and its live sessions are refused. This is the difference between "this
+-- person left" and "this person never existed" -- only the second one is worth
+-- a DELETE, and that is much harder to undo.
+--
+-- Declared with ALTER rather than inside the CREATE above because
+-- CREATE TABLE IF NOT EXISTS is a no-op against an existing table, so an
+-- in-place column would never reach an already-migrated database.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at timestamptz;
+
 -- ── Sessions ──────────────────────────────────────────────────────────
 -- Server-side and revocable, rather than a stateless JWT: an admin account
 -- must be killable immediately, and the admin panel is low-traffic enough
@@ -179,6 +190,16 @@ CREATE TABLE IF NOT EXISTS walk_traces (
 
 CREATE INDEX IF NOT EXISTS walk_traces_geom_gix ON walk_traces USING gist (geom);
 CREATE INDEX IF NOT EXISTS walk_traces_queue_idx ON walk_traces (status, created_at DESC);
+
+-- Which edge a merge produced. ON DELETE SET NULL rather than CASCADE: if the
+-- edge is later removed as bad data, the trace should stay in the record as
+-- "this was merged once" rather than silently reverting to pending and
+-- inviting a second merge of the same bad geometry.
+--
+-- Declared here rather than in the CREATE above because it references
+-- graph_edges, which is defined later in this file.
+ALTER TABLE walk_traces ADD COLUMN IF NOT EXISTS merged_edge_id uuid
+  REFERENCES graph_edges(id) ON DELETE SET NULL;
 
 -- ── Triggers ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger AS $$
