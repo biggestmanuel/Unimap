@@ -188,6 +188,98 @@ test('that route is not possible before the merge', async () => {
 
 // ── simplification ───────────────────────────────────────────────────
 
+test('a trace bridging two components joins them into one routable network', async () => {
+  // The claim the whole feature rests on: merging must not merely record
+  // geometry, it must make previously-unreachable places reachable. Asserted on
+  // the component count rather than "an edge was added", because a merge that
+  // creates another island proves nothing at all.
+  //
+  // Two corridors with a 20 m break between them, so the network starts as two
+  // components and a correct bridge makes it one.
+  const broken = [
+    {
+      edgeClass: 'corridor',
+      name: 'West Road',
+      coords: [{ lat: 4.7900, lng: 6.9790 }, { lat: 4.7950, lng: 6.9790 }],
+    },
+    {
+      edgeClass: 'corridor',
+      name: 'East Road',
+      coords: [{ lat: 4.7950, lng: 6.9792 }, { lat: 4.7950, lng: 6.9840 }],
+    },
+  ];
+
+  const repo = createMemoryRepo();
+  const graphRepo = createMemoryGraphRepo(broken);
+
+  const before = await graphRepo.getStats();
+  assert.equal(before.groups, 2, 'fixture should start as two components');
+
+  const trace = await repo.createTrace({
+    coords: [
+      { lat: 4.7950, lng: 6.9790 },
+      { lat: 4.7950, lng: 6.9791 },
+      { lat: 4.7950, lng: 6.9792 },
+    ],
+    pointCount: 3,
+    distanceMeters: 22,
+    maxOffGraphMeters: 0,
+    note: 'bridge',
+  });
+
+  const merged = await repo.mergeTraceIntoGraph(trace.id, { reviewer: 'a@b.c' });
+  assert.equal(merged.edge.edgeClass, 'footpath');
+
+  // What the merge route does to the graph repo.
+  await graphRepo.edgeAdded({
+    edgeClass: merged.edge.edgeClass,
+    name: merged.edge.name,
+    surface: null,
+    coords: merged.edge.coords,
+  });
+
+  const after = await graphRepo.getStats();
+  assert.equal(after.groups, 1, `two components should become one (was ${before.groups})`);
+  assert.ok(
+    after.routableMeters > before.routableMeters,
+    `routable should grow: ${before.routableMeters} -> ${after.routableMeters}`,
+  );
+  assert.equal(after.islands.length, 0, 'nothing should be left stranded');
+});
+
+test('the merged edge endpoint must land on an existing vertex to connect', async () => {
+  // Explains the failure the demo run hit: a trace recorded a few metres away
+  // from the network is recorded correctly and still strands itself. This is
+  // why endpoint snapping is necessary rather than merely nice.
+  const edges = [
+    { edgeClass: 'corridor', name: 'Road', coords: [{ lat: 4.7950, lng: 6.9790 }, { lat: 4.7950, lng: 6.9840 }] },
+  ];
+  const repo = createMemoryRepo();
+  const graphRepo = createMemoryGraphRepo(edges);
+
+  const trace = await repo.createTrace({
+    // 10 m north of the road: close enough to be a real path, far enough to
+    // miss every vertex.
+    coords: [{ lat: 4.79509, lng: 6.9800 }, { lat: 4.79509, lng: 6.9810 }],
+    pointCount: 2,
+    distanceMeters: 111,
+    maxOffGraphMeters: 10,
+    note: 'parallel but detached',
+  });
+
+  const merged = await repo.mergeTraceIntoGraph(trace.id, { reviewer: 'a@b.c' });
+  await graphRepo.edgeAdded({
+    edgeClass: merged.edge.edgeClass,
+    name: merged.edge.name,
+    surface: null,
+    coords: merged.edge.coords,
+  });
+
+  const stats = await graphRepo.getStats();
+  assert.equal(stats.groups, 2, 'a detached trace must stay a separate component');
+  assert.equal(stats.islands.length, 1, 'and count as an island');
+});
+
 test('a merged trace that never meets the network stays inert', async () => {
   // The router only uses a footpath when it can get you back onto a corridor,
   // so merging a path that ends in the middle of a field adds geometry without

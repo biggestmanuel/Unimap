@@ -199,15 +199,33 @@ export function analyseConnectivity(edges) {
   }));
 
   const routable = edges.filter((e) => mainIds.has(e.osmId));
-  const deadEnds = [];
+
+  // Count links per vertex, which is what a dead end actually means.
+  //
+  // The old version counted only way *endpoints* and called each occurrence a
+  // dead end. That reported 344 on the real campus -- more dead ends than ways,
+  // because any way meeting another partway along looked like it ended at both
+  // ends. The number was meaningless.
+  //
+  // The correct measure is link degree: an interior vertex of a way has two
+  // links, an endpoint has one, and a vertex shared by two ways sums their
+  // contributions. That is exactly the adjacency the router builds in
+  // `buildGraph`, so this metric and the router now agree (206).
   const degree = new Map();
   for (const e of routable) {
-    for (const k of [key(e.coords[0]), key(e.coords[e.coords.length - 1])]) {
-      degree.set(k, (degree.get(k) ?? 0) + 1);
+    const pts = e.coords;
+    for (let i = 0; i < pts.length; i += 1) {
+      const k = key(pts[i]);
+      // First and last vertex of the way contribute one link each; every
+      // vertex in between contributes two.
+      const links = i === 0 || i === pts.length - 1 ? 1 : 2;
+      degree.set(k, (degree.get(k) ?? 0) + links);
     }
   }
-  for (const [k, d] of degree) {
-    if (d === 1) deadEnds.push(k);
+
+  let deadEnds = 0;
+  for (const [, d] of degree) {
+    if (d === 1) deadEnds += 1;
   }
 
   return {
@@ -228,7 +246,7 @@ export function analyseConnectivity(edges) {
       };
     }),
     islands,
-    deadEndCount: deadEnds.length,
+    deadEndCount: deadEnds,
   };
 }
 

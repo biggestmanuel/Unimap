@@ -2,6 +2,7 @@ import { getPool, rowToPoi, rowToSession, rowToUser } from './pool.js';
 import { verifyPassword } from '../lib/auth.js';
 import { simplifyLine, dedupeConsecutive } from '../graph/simplify.js';
 import { lineLengthMeters } from '../graph/geo.js';
+import { snapEndpoints } from '../graph/snap.js';
 
 /**
  * How hard to clean a trace before it becomes geometry.
@@ -447,7 +448,7 @@ export function createPostgresRepo() {
      * merged with no geometry behind it -- which would be silently
      * unrecoverable through the API.
      */
-    async mergeTraceIntoGraph(id, { reviewer, note } = {}) {
+    async mergeTraceIntoGraph(id, { reviewer, note, graph, snapTolerance } = {}) {
       const pool = getPool();
       const client = await pool.connect();
       try {
@@ -491,7 +492,14 @@ export function createPostgresRepo() {
           throw err;
         }
 
-        const coords = geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+        const rawCoords = geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+
+        // Snap the two ends onto the network before anything else, so the
+        // merged edge shares a node with a corridor instead of floating beside
+        // it. Only the ends move; the middle is the new information and is
+        // left exactly as walked.
+        const { coords, snapped } = snapEndpoints(rawCoords, graph, snapTolerance);
+
         const cleaned = dedupeConsecutive(coords, TRACE_DEDUPE_METERS);
         const simplified = simplifyLine(cleaned, TRACE_SIMPLIFY_METERS);
 
@@ -544,6 +552,12 @@ export function createPostgresRepo() {
             // implementation, which has no database to re-read, can append the
             // same geometry. The Postgres implementation ignores it.
             coords: simplified,
+            // How far each end had to move to meet the network, so a
+            // suspicious merge is visible rather than silent.
+            snapped: snapped.map((s) => ({
+              index: s.index,
+              meters: Math.round(s.meters * 10) / 10,
+            })),
           },
           trace: {
             id: r.id,

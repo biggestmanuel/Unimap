@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { verifyPassword } from '../lib/auth.js';
 import { simplifyLine, dedupeConsecutive } from '../graph/simplify.js';
 import { lineLengthMeters } from '../graph/geo.js';
+import { snapEndpoints } from '../graph/snap.js';
 
 const TRACE_SIMPLIFY_METERS = 3;
 const TRACE_DEDUPE_METERS = 1;
@@ -312,7 +313,7 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       return [...traceEdges];
     },
 
-    async mergeTraceIntoGraph(id, { reviewer, note } = {}) {
+    async mergeTraceIntoGraph(id, { reviewer, note, graph, snapTolerance } = {}) {
       const record = traces.get(id);
       if (!record) return null;
       if (record.mergedEdgeId != null || record.status === 'merged') {
@@ -321,7 +322,10 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
         throw err;
       }
 
-      const cleaned = dedupeConsecutive(record.coords, TRACE_DEDUPE_METERS);
+      // Endpoints onto the network, middle left as walked.
+      const { coords, snapped } = snapEndpoints(record.coords, graph, snapTolerance);
+
+      const cleaned = dedupeConsecutive(coords, TRACE_DEDUPE_METERS);
       const simplified = simplifyLine(cleaned, TRACE_SIMPLIFY_METERS);
       if (simplified.length < 2 || lineLengthMeters(simplified) < MIN_EDGE_METERS) {
         const err = new Error('trace is too short to become an edge');
@@ -351,6 +355,9 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
           source: 'walk-trace',
           vertices: simplified.length,
           coords: simplified,
+          // How far each end had to move to meet the network, so a suspicious
+          // merge is visible rather than silent.
+          snapped,
         },
         trace: { ...record },
       };

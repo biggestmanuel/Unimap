@@ -7,6 +7,7 @@ import {
 } from '../lib/validation.js';
 import { haversineMeters, lineLengthMeters } from '../graph/geo.js';
 import { snapToGraph } from '../graph/router.js';
+import { SNAP_TOLERANCE_METERS } from '../graph/snap.js';
 
 /**
  * Student walk traces.
@@ -124,6 +125,12 @@ export default function createTraceRoutes({ repo, graphRepo, requireAdmin }) {
       const merged = await repo.mergeTraceIntoGraph(req.params.id, {
         reviewer: req.user.email,
         note: typeof req.body?.note === 'string' ? req.body.note.slice(0, 1000) : null,
+        // Endpoints are nudged onto the network before the geometry is written,
+        // so a real recording connects instead of becoming yet another island.
+        // `null` asks the repository to snap for itself using its own geometry.
+        snappedCoords: null,
+        graph: await graphRepo.getGraph(),
+        snapTolerance: SNAP_TOLERANCE_METERS,
       });
 
       if (!merged) return res.status(404).json({ error: 'not_found' });
