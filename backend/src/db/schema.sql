@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- over live sessions.
 CREATE TABLE IF NOT EXISTS sessions (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid NOT NULL REFERENCES users(id) ON CASCADE,
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_hash  text NOT NULL UNIQUE,
   user_agent  text,
   created_at  timestamptz NOT NULL DEFAULT now(),

@@ -11,9 +11,22 @@ import { createInterface } from 'node:readline';
 import { getPool, closePool } from './pool.js';
 import { hashPassword, checkPasswordStrength } from '../lib/auth.js';
 
+/**
+ * Read `--name=value` or `--name value`.
+ *
+ * Both forms are supported because npm on Windows does not always pass a
+ * `--` argument list through in a consistent shape, and a script that
+ * silently ignores its own flags is worse than no script.
+ */
 function arg(name) {
-  const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
-  return hit ? hit.slice(name.length + 3) : undefined;
+  const argv = process.argv;
+  const eq = argv.find((a) => a.startsWith(`--${name}=`));
+  if (eq) return eq.slice(name.length + 3);
+
+  const i = argv.indexOf(`--${name}`);
+  if (i !== -1 && i + 1 < argv.length) return argv[i + 1];
+
+  return undefined;
 }
 
 async function prompt(question) {

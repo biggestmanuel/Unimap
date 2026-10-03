@@ -13,6 +13,7 @@ import request from 'supertest';
 import createApp from '../src/app.js';
 import { createMemoryRepo } from '../src/db/memoryRepo.js';
 import { createMemoryGraphRepo } from '../src/graph/graphRepo.js';
+import { resetAllLimiters } from '../src/lib/rateLimit.js';
 
 const ORIGIN = { lat: 4.79, lng: 6.98 };
 
@@ -61,6 +62,7 @@ const POI_SEED = [
 ];
 
 function build() {
+  resetAllLimiters();
   const repo = createMemoryRepo(POI_SEED);
   const graphRepo = createMemoryGraphRepo(GRAPH_ROWS);
   return { app: createApp({ repo, graphRepo }), repo, graphRepo };

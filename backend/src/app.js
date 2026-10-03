@@ -7,6 +7,7 @@ import createAuthRoutes from './routes/auth.js';
 import createAdminRoutes from './routes/admin.js';
 import createTraceRoutes from './routes/trace.js';
 import { makeRequireAdmin } from './routes/auth.js';
+import { publicWriteLimiter, readLimiter } from './lib/rateLimit.js';
 
 /**
  * App factory. The repository is a parameter so tests can inject an
@@ -37,6 +38,11 @@ export default function createApp({ repo, graphRepo, requireAdmin } = {}) {
 
   const app = express();
 
+  // Behind a reverse proxy, req.ip is the proxy unless this is set. Without
+  // it every client shares one rate-limit bucket, so one busy campus can lock
+  // out everyone.
+  app.set('trust proxy', process.env.TRUST_PROXY ?? 1);
+
   app.use(cors());
   app.use(express.json({ limit: '64kb' }));
 
@@ -47,6 +53,15 @@ export default function createApp({ repo, graphRepo, requireAdmin } = {}) {
   // `requireAdmin` is a middleware, injectable so tests can stub it. The
   // default is the real role check.
   const adminGate = requireAdmin ?? makeRequireAdmin({ repo });
+
+  // Reads are cheap and plentiful; a wide net catches runaway polling.
+  app.use('/api', readLimiter);
+
+  // These two are public by design and expensive: a trace is up to 20,000
+  // coordinates snapped against the whole graph. Tight limit, applied before
+  // the handler so a rejected request costs nothing.
+  app.use('/api/traces', publicWriteLimiter);
+  app.use('/api/corrections', publicWriteLimiter);
 
   app.use('/api', createPoiRoutes(repo));
   app.use('/api', createRouteRoutes({ graphRepo, repo }));

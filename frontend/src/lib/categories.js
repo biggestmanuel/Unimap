@@ -59,6 +59,7 @@ export const GEOFENCE_BUFFER_METERS = 100;
 /** Map centre and a zoom that frames the whole campus. */
 export const CAMPUS_CENTER = [4.797, 6.982];
 export const CAMPUS_ZOOM = 16;
+export const CAMPUS_NAME = 'Rivers State University';
 
 export const POPULAR_PLACES = [
   'UST Shuttle Park',

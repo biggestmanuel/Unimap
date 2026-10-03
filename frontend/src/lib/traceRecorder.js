@@ -11,6 +11,10 @@
  * without them agreeing each time.
  */
 
+import { distanceMeters, traceLength } from './distance.js';
+
+export { distanceMeters, traceLength };
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
 /** Drop points closer than this to their predecessor. */
@@ -19,44 +23,25 @@ const MIN_STEP_METERS = 2;
 /** Refuse to record something implausible for a walk. */
 export const MAX_TRACE_METERS = 5000;
 
-export function distanceMeters(a, b) {
-  const R = 6371008.8;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const h = Math.sin(toRad(b.lat - a.lat) / 2) ** 2
-    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat))
-      * Math.sin(toRad(b.lng - a.lng) / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-export function traceLength(coords) {
-  let total = 0;
-  for (let i = 1; i < coords.length; i += 1) {
-    total += distanceMeters(coords[i - 1], coords[i]);
-  }
-  return total;
-}
+/** A jump larger than this in one fix is a GPS error, not a walk. */
+const MAX_JUMP_METERS = 250;
 
 /**
  * Thin the raw GPS trail.
  *
  * Two filters: a minimum step, so standing still does not produce fifty
- * copies of one point; and a speed gate, which is the single most effective
- * guard against tunnel and rooftop multipath errors. A pedestrian cannot
- * sustain 12 m/s, and neither should a trace claim to.
+ * copies of one point; and a jump gate, which is the single most effective
+ * guard against tunnel, urban-canyon and rooftop multipath errors. A fix
+ * that moves 2 km from the previous one is not a pedestrian.
  */
-export function cleanTrace(raw, { minStepMeters = MIN_STEP_METERS, maxSpeedMps = 12 } = {}) {
+export function cleanTrace(raw, { minStepMeters = MIN_STEP_METERS } = {}) {
   if (!Array.isArray(raw) || raw.length === 0) return [];
 
   const out = [raw[0]];
   for (let i = 1; i < raw.length; i += 1) {
-    const prev = out[out.length - 1];
-    const step = distanceMeters(prev, raw[i]);
+    const step = distanceMeters(out[out.length - 1], raw[i]);
     if (step < minStepMeters) continue;
-
-    // Interval unknown here, so only reject absurd jumps outright rather than
-    // pretending to know a speed.
-    if (step > 250) continue;
-
+    if (step > MAX_JUMP_METERS) continue;
     out.push(raw[i]);
   }
   return out;

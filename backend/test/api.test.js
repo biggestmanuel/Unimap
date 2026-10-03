@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import { expect } from './expect.js';
 import request from 'supertest';
 import createApp from '../src/app.js';
+import { resetAllLimiters } from '../src/lib/rateLimit.js';
 import { createMemoryRepo } from '../src/db/memoryRepo.js';
 
 const SEED = [
@@ -32,6 +33,10 @@ const SEED = [
 const NEH = SEED[0].id;
 
 function makeApp() {
+  // Each test builds a fresh app, so clear the shared rate-limit buckets too.
+  // Otherwise a file that submits many corrections throttles itself partway
+  // through and the failure looks like a routing bug.
+  resetAllLimiters();
   return createApp({ repo: createMemoryRepo(SEED), requireAdmin: (req, res, next) => next() });
 }
 

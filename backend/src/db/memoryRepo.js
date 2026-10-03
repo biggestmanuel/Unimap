@@ -59,7 +59,7 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
   }
 
   return {
-    async listPois({ q, category, limit, offset }) {
+    async listPois({ q, category, limit = 200, offset = 0 }) {
       let items = [...pois.values()];
 
       if (category) items = items.filter((p) => p.category === category);
@@ -104,11 +104,18 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       return record;
     },
 
-    async listCorrections({ status, reporterDevice, limit, offset }) {
+    async listCorrections({
+      status,
+      reporterDevice,
+      limit = 200,
+      offset = 0,
+    }) {
       let items = [...corrections.values()];
       if (status) items = items.filter((c) => c.status === status);
       if (reporterDevice) items = items.filter((c) => c.reporterDevice === reporterDevice);
       const total = items.length;
+      // Defaults matter here: `offset + limit` with either undefined is NaN,
+      // and slice(_, NaN) silently returns an empty page.
       return { items: items.slice(offset, offset + limit), total };
     },
 
@@ -232,14 +239,15 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       return record;
     },
 
-    async listTraces({ status, limit = 50 } = {}) {
+    async listTraces({ status, limit = 50, offset = 0 } = {}) {
       let items = [...traces.values()];
       if (status) items = items.filter((t) => t.status === status);
       // Furthest off-graph first: those are the ones worth a human's time.
       items.sort(
         (a, b) => (b.maxOffGraphMeters ?? -1) - (a.maxOffGraphMeters ?? -1),
       );
-      return { items: items.slice(0, limit), total: items.length };
+      const total = items.length;
+      return { items: items.slice(offset, offset + limit), total };
     },
 
     async reviewTrace(id, { status, note, reviewer }) {

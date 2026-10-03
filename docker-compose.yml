@@ -30,5 +30,13 @@ services:
       timeout: 5s
       retries: 10
 
+  # tiles is intentionally NOT defined here.
+  #
+  # A tile server needs a Nigeria-wide OSM extract (a few GB) and a one-off
+  # generation step, so it does not belong in a `docker compose up` that
+  # someone runs to get the app working. The recipe, and why it is the right
+  # answer to the OSM tile usage policy, is in docs/TILES.md. When you have
+  # one, set VITE_TILE_URL in frontend/.env — no code change is needed.
+
 volumes:
   unimap-pgdata:

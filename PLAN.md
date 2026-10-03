@@ -112,49 +112,76 @@ Items marked ✅ are done.
   Findings and the rules that keep it that way: `docs/SECURITY.md`
 - ✅ Playwright coverage for navigation (12 specs: theme, geolocation, routing,
   fallback labelling, corrections, XSS payload)
-- ⚠️ **Tile policy still needs a decision** — see `docs/TILES.md`
-- ⚠️ **No rate limiting** on the public `/api/traces` and `/api/corrections`
-  endpoints. Needs a reverse proxy or a token bucket before real traffic.
+- ✅ **Rate limiting** on the two public write endpoints (token bucket, 12 burst
+  + 1/10 s refill), and `trust proxy` so a reverse proxy does not collapse
+  every client into one bucket
+- ✅ **Deployed**: PostGIS in Docker, schema applied, 79 POIs seeded, 323 graph
+  edges imported, admin account bootstrapped
+- ⚠️ **Tile policy still needs a decision** — `VITE_TILE_URL` is now wired, so
+  switching to a self-hosted TileServer is a config change. See `docs/TILES.md`
 - [ ] Field test on real devices over Glo data (manual)
 
 ---
 
 ## Cannot be automated — you must do these
 
-1. **Walk the campus and check the footpaths against OSM.** Not to draw them —
-   they are already mapped — but to confirm OSM matches reality and to spot the
-   paths under tree canopy that imagery cannot show. Load relation `10559059`
-   in JOSM with Esri World Imagery. You do not need to be there; you need to
-   remember where the covered walkways run.
+Everything below genuinely needs a human. Everything else on this list is now
+done, deployed, or automated behind a command.
 
-2. **Close the 4 real gaps the tooling found**, in priority order:
-   - `Convo Arena Field` sits 67 m off the network — either trace a path to it
-     or correct its coordinate
-   - the 32-way island (~4.4 km) is unreachable from the main network
-   - `Eagle Island Road` is a separate island (622 m)
-   - 7 POIs total sit beyond 30 m from any way
+### 1. Check the footpaths against reality
 
-3. **Field test on your phone over Glo data.** Disable wifi, load the app,
-   tap Engineering Block, confirm a marker appears and search works. Then:
-   - install it from the prompt and confirm it opens standalone
-   - ask for directions while offline and confirm the route still draws
-   - report a problem while offline, then reconnect and confirm it sends
-   This is the go/no-go gate for everything after it.
+The campus is already mapped in OSM — 55 footway ways, 4.7 km, 100% connected.
+You are **not** drawing them. You are confirming they match what is there, and
+finding the paths under tree canopy that satellite imagery cannot show.
 
-4. **Hand-verify the 79 seeded POI coordinates** before students file
-   corrections against them. 72 are within 30 m of a real path, so most are
-   fine; the 7 flagged above are not.
+`npm run graph:gaps` has already narrowed this down for you. Load relation
+`10559059` in JOSM with Esri World Imagery and check the flagged items:
 
-5. **Deploy PostGIS**, then `npm run migrate`, `npm run seed`,
-   `npm run graph:import` to populate `graph_edges`, and
-   `npm run user -- --email you@rsu.edu.ng --role admin`.
-   No OSRM container is needed — the router is in-process.
+| POI | Off path | Verdict |
+|---|---|---|
+| Senior Staff Club RSU | 42 m | coordinate is right — a path is missing |
+| New Marine Building | 38 m | coordinate is right — a path is missing |
+| Basketball Court | 32 m | coordinate is right — a path is missing |
+| Convo Arena Field | 67 m | **no building found — the coordinate is probably wrong** |
+| Hostel A | 42 m | **no building found — check the coordinate** |
+| PG field | 36 m | **no building found — check the coordinate** |
+| Tennis Court | 30 m | **no building found — check the coordinate** |
 
-6. **Decide the tile source** — `docs/TILES.md`. Self-hosted is the only
-   option that is both policy-safe and guaranteed to work offline.
+`npm run graph:gaps` prints this table plus the exact gap coordinates for each
+island, so nothing here is guesswork.
 
-7. **Put rate limiting in front of the API** before real traffic. Two
-   endpoints are intentionally public.
+### 2. Close the four islands
+
+Also from `npm run graph:gaps`, each with the two coordinates to join:
+
+| Island | Gap to main network |
+|---|---|
+| 32 ways, 4.4 km (unnamed) | **46 m** — the cheapest, biggest win |
+| Eagle Island Road, 622 m | 93 m |
+| unnamed, 601 m | 237 m |
+| unnamed, 344 m | 269 m |
+
+The 46 m gap is the one that matters. Re-run `npm run graph:gaps` after
+editing, then `npm run graph:import`, to see the effect.
+
+### 3. Field test on your phone over Glo data
+
+The go/no-go gate. Specifically:
+
+- install from the prompt, confirm it opens standalone
+- ask for directions **while offline** — the route should still draw
+- report a problem while offline, reconnect, confirm it sends
+- walk one of the "trace a path to it" locations and record a walk
+
+### 4. Decide the tile source
+
+`docs/TILES.md`. The code side is done — set `VITE_TILE_URL` and it switches.
+
+### 5. Point this at real hosting
+
+PostGIS runs locally. The API needs a host that terminates TLS, sets
+`TRUST_PROXY`, and holds `DATABASE_URL` from `.env`. Nothing in the app
+changes for that.
 
 ---
 

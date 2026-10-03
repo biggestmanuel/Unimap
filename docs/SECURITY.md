@@ -95,13 +95,39 @@ by:
 - Zod schemas with hard limits (a trace is capped at 20,000 points)
 - the 64 KB body limit in `express.json`, which returns **413**, not 500
 - geometric sanity checks (a trace that does not move is rejected)
+- a token bucket, 12 burst and one request per 10 seconds
 
 ## Still to do
 
-- **Rate limiting.** There is none. An open endpoint on a public host will be
-  found. Put a reverse proxy in front, or add a token-bucket middleware,
-  before this is exposed beyond the campus.
 - **CSP headers.** Worth adding at the serving layer once the deployment
   target is known.
 - **Audit `legacy/`.** It is the archived vanilla app and still uses the public
   OSRM demo server. It is not served, but it is in the repository.
+
+## Rate limiting
+
+The two intentionally-public endpoints are behind a token bucket
+(`backend/src/lib/rateLimit.js`):
+
+| Endpoint | Burst | Sustained |
+|---|---|---|
+| `POST /api/traces`, `POST /api/corrections` | 12 | 1 per 10 s |
+| everything else under `/api` | 120 | 10 per second |
+
+`Retry-After` and `X-RateLimit-Remaining` are returned, so a well-behaved
+client can back off before it gets a 429.
+
+**Scope, honestly:** in-process and per-instance. It stops casual abuse and
+one misbehaving client from saturating the CPU, and it resets on restart.
+For more than one instance, put a real limiter at the reverse proxy too.
+
+`trust proxy` is set on the app (overridable with `TRUST_PROXY`). Without it
+`req.ip` is the proxy's address and every client shares one bucket, so a
+single busy campus could lock everyone out.
+
+### Testing it
+
+The limiters are module singletons, so a test file will throttle *itself*
+partway through unless the buckets are cleared. Call `resetAllLimiters()`
+wherever a test builds a fresh app. Getting this wrong produces failures that
+look like routing bugs, which is how it was found.

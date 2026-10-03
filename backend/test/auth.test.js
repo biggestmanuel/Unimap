@@ -12,6 +12,7 @@ import request from 'supertest';
 
 import createApp from '../src/app.js';
 import { createMemoryRepo } from '../src/db/memoryRepo.js';
+import { resetAllLimiters } from '../src/lib/rateLimit.js';
 import {
   hashPassword,
   verifyPassword,
@@ -24,6 +25,8 @@ import {
 const PASSWORD = 'correct-horse-battery';
 
 async function fixture() {
+  // Fresh app per call, so clear the shared rate-limit buckets with it.
+  resetAllLimiters();
   const adminHash = await hashPassword(PASSWORD);
   const studentHash = await hashPassword('another-good-password');
 

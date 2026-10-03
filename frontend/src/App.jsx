@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import MapShell from './components/MapShell.jsx';
 import SearchSheet from './components/SearchSheet.jsx';
 import RoutePanel from './components/RoutePanel.jsx';
@@ -13,9 +13,11 @@ import { useRouting } from './hooks/useRouting.js';
 import { useArrival } from './hooks/useArrival.js';
 import { useTheme } from './hooks/useTheme.js';
 import { useGeofence } from './hooks/useGeofence.js';
+import { useStoragePressure } from './hooks/useStoragePressure.js';
+import { CAMPUS_CENTER, CAMPUS_NAME } from './lib/categories.js';
 
 export default function App() {
-  const { pois, status, error, offline, fromCache, reload } = usePois();
+  const { pois, status, error, fromCache, reload } = usePois();
   const search = useSearch(pois);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [mapReady, setMapReady] = useState(false);
@@ -26,6 +28,9 @@ export default function App() {
   const { theme, toggle } = useTheme();
   const geo = useGeolocation({ watch: true });
   const routing = useRouting();
+  // Asks the browser not to evict our offline data, and reports pressure.
+  useStoragePressure();
+
   const arrival = useArrival({
     routeCoords: routing.result?.coords,
     destination: routing.result?.to,
@@ -34,6 +39,50 @@ export default function App() {
 
   // Whether the POI list came from the cache rather than the network.
   const geofence = useGeofence();
+
+  // Feed the campus gate from every GPS fix. Without this the geofence was
+  // pure dead code: it decided "am I on campus" but nothing ever asked it.
+  const { checkPoint, isOnCampus, canNavigate } = geofence;
+
+  useEffect(() => {
+    if (geo.position) checkPoint([geo.position.lat, geo.position.lng]);
+  }, [geo.position, checkPoint]);
+
+  /**
+   * Ask for directions, but only from on campus.
+   *
+   * Guidance is useless 40 km away — the graph has nothing there and the
+   * straight-line fallback would be actively misleading.
+   */
+  const goToPoi = useCallback(
+    (poi) => {
+      if (!poi) return;
+      if (!canNavigate()) return;
+      const from = geo.position ?? { lat: CAMPUS_CENTER[0], lng: CAMPUS_CENTER[1] };
+      routing.route(
+        { lat: from.lat, lng: from.lng },
+        { lat: poi.lat, lng: poi.lng },
+      );
+    },
+    [canNavigate, geo.position, routing],
+  );
+
+  /** Tap the map with nothing selected: route from the user to that point. */
+  const handleMapClick = useCallback(
+    (event) => {
+      const poi = search.selectedId
+        ? pois.find((p) => p.id === search.selectedId)
+        : null;
+      if (poi) goToPoi(poi);
+      else if (geo.position && canNavigate()) {
+        routing.route(
+          { lat: geo.position.lat, lng: geo.position.lng },
+          { lat: event.latlng.lat, lng: event.latlng.lng },
+        );
+      }
+    },
+    [canNavigate, geo.position, goToPoi, pois, routing, search.selectedId],
+  );
 
   /**
    * How far the user currently is from any mapped path.
@@ -47,15 +96,11 @@ export default function App() {
     return routing.result.snappedOriginMeters;
   }, [geo.position, routing.result]);
 
-  // Feed the boundary check as fixes arrive. Cheap, and keeps the gate and
-  // the map marker reading from the same source.
-  const handleMapReady = useCallback(
-    (instance) => {
-      mapRef.current = instance;
-      setMapReady(true);
-    },
-    [],
-  );
+  // Leaflet instance handed up by MapEvents once the map exists.
+  const handleMapReady = useCallback((instance) => {
+    mapRef.current = instance;
+    setMapReady(true);
+  }, []);
 
   const handleSelect = useCallback(
     (poi) => {
@@ -63,36 +108,6 @@ export default function App() {
       setSheetOpen(false);
     },
     [search],
-  );
-
-  /** Route from wherever the user is to a POI. */
-  const goToPoi = useCallback(
-    (poi) => {
-      if (!poi) return;
-      const from = geo.position ?? { lat: 4.797, lng: 6.982 };
-      routing.route(
-        { lat: from.lat, lng: from.lng },
-        { lat: poi.lat, lng: poi.lng },
-      );
-    },
-    [geo.position, routing],
-  );
-
-  /** Tap the map with nothing selected: route from the user to that point. */
-  const handleMapClick = useCallback(
-    (event) => {
-      const poi = search.selectedId
-        ? pois.find((p) => p.id === search.selectedId)
-        : null;
-      if (poi) goToPoi(poi);
-      else if (geo.position) {
-        routing.route(
-          { lat: geo.position.lat, lng: geo.position.lng },
-          { lat: event.latlng.lat, lng: event.latlng.lng },
-        );
-      }
-    },
-    [geo.position, goToPoi, pois, routing, search.selectedId],
   );
 
   return (
@@ -130,6 +145,14 @@ export default function App() {
 
       {geo.status === 'unavailable' && (
         <p className="notice" role="status">{geo.error}</p>
+      )}
+
+      {/* Directions are campus-only: the graph has nothing beyond the gate,
+          so a route from there would be a straight line presented as advice. */}
+      {geo.status === 'granted' && !canNavigate() && (
+        <p className="notice notice--warn" role="status">
+          You are off campus — directions are only available on {CAMPUS_NAME}.
+        </p>
       )}
 
       {geo.status === 'idle' && status === 'ready' && (

@@ -14,6 +14,7 @@ import createApp from '../src/app.js';
 import { createMemoryRepo } from '../src/db/memoryRepo.js';
 import { createMemoryGraphRepo } from '../src/graph/graphRepo.js';
 import { hashPassword } from '../src/lib/auth.js';
+import { resetAllLimiters } from '../src/lib/rateLimit.js';
 
 const ORIGIN = { lat: 4.79, lng: 6.98 };
 
@@ -40,6 +41,8 @@ const GRAPH_ROWS = [
 ];
 
 async function build({ withAdmin = false } = {}) {
+  // Fresh app per call, so clear the shared rate-limit buckets with it.
+  resetAllLimiters();
   const users = withAdmin
     ? [{ id: 'aaaaaaaa-1111-4111-8111-111111111111', email: 'admin@rsu.edu.ng', role: 'admin', passwordHash: await hashPassword('correct-horse-battery') }]
     : [];

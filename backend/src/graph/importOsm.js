@@ -12,6 +12,7 @@ import { realpathSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { getPool, closePool } from '../db/pool.js';
+import { lineLengthMeters } from './geo.js';
 import {
   CAMPUS_BBOX,
   analyseConnectivity,
@@ -23,15 +24,16 @@ function fmt(n) {
   return n.toFixed(2);
 }
 
-export async function importGraph({ pool, bbox = CAMPUS_BBOX, json = null } = {}) {
-  const data = json ?? await fetchOverpass(bbox);
-  const { edges, skipped } = parseOverpass(data, { bbox });
-
+/**
+ * Replace the OSM edge set with `edges`.
+ *
+ * Takes parsed edges rather than an Overpass response so it works for both a
+ * live fetch and a saved extract.
+ */
+export async function importEdges({ pool, edges }) {
   if (edges.length === 0) {
     throw new Error('No usable ways found -- refusing to wipe the graph.');
   }
-
-  const stats = analyseConnectivity(edges);
 
   const client = await pool.connect();
   try {
@@ -79,7 +81,7 @@ export async function importGraph({ pool, bbox = CAMPUS_BBOX, json = null } = {}
     client.release();
   }
 
-  return { edges, skipped, stats };
+  return { edges };
 }
 
 /** Empty-string names would defeat the "group legs by name" leg builder. */
@@ -134,24 +136,54 @@ const invokedDirectly = process.argv[1]
   && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (invokedDirectly) {
-  // The JSON is written whether or not a database is configured: it is what
-  // `npm run dev` routes from, and what the offline PWA ships.
-  const json = await fetchOverpass(CAMPUS_BBOX);
-  const { edges, skipped } = parseOverpass(json, { bbox: CAMPUS_BBOX });
+  // `--from=<path>` loads a saved extract instead of querying Overpass.
+  // Overpass mirrors are community-run and rate-limit aggressively, so this
+  // is often the only way to re-import without waiting.
+  const fromArg = process.argv.find((a) => a.startsWith('--from='));
+  const fromPath = fromArg ? fromArg.slice('--from='.length) : null;
+
+  let edges;
+  let skipped = null;
+
+  if (fromPath) {
+    const raw = JSON.parse(readFileSync(fromPath, 'utf-8'));
+    edges = raw.map((r) => {
+      const coords = r.coords.map((c) => (Array.isArray(c)
+        ? { lat: c[1], lng: c[0] }        // [lng, lat] form
+        : { lat: c.lat, lng: c.lng }));   // {lat,lng} form
+      return {
+        osmId: r.osmId ?? null,
+        name: r.name ?? null,
+        edgeClass: r.edgeClass,
+        surface: r.surface ?? null,
+        coords,
+        lengthMeters: lineLengthMeters(coords),
+      };
+    });
+    console.log(`loaded ${edges.length} edges from ${fromPath}`);
+  } else {
+    const json = await fetchOverpass(CAMPUS_BBOX);
+    ({ edges, skipped } = parseOverpass(json, { bbox: CAMPUS_BBOX }));
+  }
+
   const stats = analyseConnectivity(edges);
 
-  const dest = writeGraphJson(edges, GRAPH_JSON_PATH);
-  console.log(`wrote ${edges.length} edges -> ${dest}`);
+  if (!fromPath) {
+    const dest = writeGraphJson(edges, GRAPH_JSON_PATH);
+    console.log(`wrote ${edges.length} edges -> ${dest}`);
+  }
 
   if (process.env.DATABASE_URL) {
-    await importGraph({ pool: getPool(), json });
+    // Pass the already-parsed edges rather than the raw response, so the
+    // --from path works too.
+    await importEdges({ pool: getPool(), edges });
     console.log('imported into graph_edges');
     await closePool();
   } else {
     console.log('DATABASE_URL not set — skipped the PostGIS import');
   }
 
-  console.log(`  skipped: ${JSON.stringify(skipped)}`);
+  if (skipped) console.log(`  skipped: ${JSON.stringify(skipped)}`);
   for (const c of stats.byClass) {
     console.log(
       `  ${c.edgeClass.padEnd(9)} ${String(c.ways).padStart(4)} ways  `

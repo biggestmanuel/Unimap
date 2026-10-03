@@ -1,16 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { distanceMeters } from '../lib/distance.js';
 
-/** Great-circle distance in metres between two {lat,lng}. */
-export function distanceMeters(a, b) {
-  if (!a || !b) return Infinity;
-  const R = 6371008.8;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2
-    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
+export { distanceMeters };
 
 /**
  * Remaining distance to the end of the route polyline, in metres.

@@ -38,11 +38,17 @@ npm run graph:verify   # route some real POI pairs and print the results
 
 # Bootstrap the admin console at /admin.html
 npm run user -- --email you@rsu.edu.ng --role admin
+
+# See what still needs tracing, with exact coordinates:
+npm run graph:gaps
 ```
 
 Routing is **in-process** — A* over `graph_edges`. There is no external routing
 service to run. With no database, the API routes from
 `frontend/public/data/walk-graph.json` instead, so a fresh clone still works.
+
+`npm run graph:import -- --from=<path>` re-imports from a saved extract, which
+is often necessary because the Overpass mirrors rate-limit aggressively.
 
 ## Status
 
