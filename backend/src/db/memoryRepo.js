@@ -313,6 +313,37 @@ export function createMemoryRepo(seed = [], { users = [] } = {}) {
       return [...traceEdges];
     },
 
+    // ── graph edges ───────────────────────────────────────────────────
+
+    async getGraphEdge(id) {
+      const e = traceEdges.find((x) => x.id === id);
+      if (!e) return null;
+      return {
+        id: e.id,
+        edgeClass: e.edgeClass,
+        name: e.name ?? null,
+        source: e.source,
+        surface: null,
+      };
+    },
+
+    async deleteTraceEdge(id) {
+      const i = traceEdges.findIndex((x) => x.id === id);
+      if (i === -1) return { deleted: false, traceReopened: false };
+      traceEdges.splice(i, 1);
+      // The trace goes back to pending, matching the Postgres behaviour.
+      let traceReopened = false;
+      for (const t of traces.values()) {
+        if (t.mergedEdgeId !== id) continue;
+        t.mergedEdgeId = null;
+        t.status = 'pending';
+        t.reviewedBy = null;
+        t.reviewedAt = null;
+        traceReopened = true;
+      }
+      return { deleted: true, traceReopened };
+    },
+
     async mergeTraceIntoGraph(id, { reviewer, note, graph, snapTolerance } = {}) {
       const record = traces.get(id);
       if (!record) return null;

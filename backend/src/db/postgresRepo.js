@@ -581,5 +581,80 @@ export function createPostgresRepo() {
         client.release();
       }
     },
+
+    // -- graph edges ---------------------------------------------------
+
+    async getGraphEdge(id) {
+      const pool = getPool();
+      const { rows } = await pool.query(
+        'SELECT id, edge_class, name, source, surface FROM graph_edges WHERE id = $1',
+        [id],
+      );
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      return {
+        id: r.id,
+        edgeClass: r.edge_class,
+        name: r.name,
+        source: r.source,
+        surface: r.surface,
+      };
+    },
+
+    /**
+     * Delete a trace-derived edge and put its trace back in the queue.
+     *
+     * One transaction: an edge removed while its trace still read 'merged' would
+     * be unrecoverable through the API, because that trace can never be merged a
+     * second time.
+     */
+    async deleteTraceEdge(id) {
+      const pool = getPool();
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // The trace has to be found BEFORE the edge goes: `merged_edge_id` is
+        // ON DELETE SET NULL, so once the edge is removed there is nothing left
+        // to match the trace by.
+        const owned = await client.query(
+          'SELECT id FROM walk_traces WHERE merged_edge_id = $1 FOR UPDATE',
+          [id],
+        );
+
+        const removed = await client.query(
+          `DELETE FROM graph_edges WHERE id = $1 AND source = 'walk-trace' RETURNING id`,
+          [id],
+        );
+        if (removed.rowCount === 0) {
+          await client.query('ROLLBACK');
+          return { deleted: false, traceReopened: false };
+        }
+
+        let traceReopened = false;
+        if (owned.rows.length > 0) {
+          const reopened = await client.query(
+            `UPDATE walk_traces
+                SET status = 'pending',
+                    merged_edge_id = NULL,
+                    reviewed_by = NULL,
+                    reviewed_at = NULL
+              WHERE id = $1`,
+            [owned.rows[0].id],
+          );
+          traceReopened = (reopened.rowCount ?? 0) > 0;
+        }
+
+        await client.query('COMMIT');
+        return { deleted: true, traceReopened };
+      } catch (err) {
+        try {
+          await client.query('ROLLBACK');
+        } catch { /* already rolled back */ }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
   };
 }

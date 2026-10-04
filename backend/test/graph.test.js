@@ -127,25 +127,45 @@ test('buildGraph joins ways that share a node', () => {
   assert.equal(g.segments.length, 3, 'Road A splits into 2 segments, Road B is 1');
 });
 
-test('ways that cross without sharing a node are NOT connected', () => {
-  // The single most common way a hand-traced graph goes wrong: two ways that
-  // visibly meet on the map but whose endpoints are different OSM nodes, so
-  // the router sees two dead ends and no route. Fixing it means adding a
-  // shared node at the junction in JOSM.
+test('a way ending on another way interior now connects', () => {
+  // Previously this was the "most common way a hand-traced graph goes wrong":
+  // two ways that visibly meet but whose endpoints are different nodes, so the
+  // router saw two dead ends and no route, and the fix was to add a shared node
+  // by hand in JOSM.
+  //
+  // buildGraph now splits a way where another way's vertex lands on its
+  // interior, which handles this case without editing the source data. That is
+  // what makes merged walk traces usable: a trace that ends partway along a road
+  // connects to it rather than becoming an island.
+  //
+  // Only vertex-on-interior is joined. Two ways that merely *cross* with neither
+  // ending at the crossing are an overpass, and are still left alone -- see
+  // test/interiorJunction.test.js.
   const g = buildGraph([
     { coords: [ORIGIN, offset(ORIGIN, 400, 0)], edgeClass: 'corridor', name: 'Road A' },
     { coords: [offset(ORIGIN, 200, 0), offset(ORIGIN, 200, 300)], edgeClass: 'corridor', name: 'Road B' },
   ]);
 
-  const stats = analyseConnectivity([
-    { osmId: 1, edgeClass: 'corridor', lengthMeters: 400, coords: [ORIGIN, offset(ORIGIN, 400, 0)] },
-    { osmId: 2, edgeClass: 'corridor', lengthMeters: 300, coords: [offset(ORIGIN, 200, 0), offset(ORIGIN, 200, 300)] },
-  ]);
-  assert.equal(stats.groups, 2, 'the two ways are separate components');
+  // The junction is now a node, and Road A is split there.
+  assert.ok(g.adj.has(nodeKey(offset(ORIGIN, 200, 0))), 'the junction should be a node');
+  assert.equal(g.segments.length, 3, 'Road A splits into 2, Road B is 1');
 
   const route = findRoute(g, offset(ORIGIN, 380, 0), offset(ORIGIN, 200, 290));
-  assert.equal(route.found, false, 'no route without a shared node');
-  assert.equal(route.reason, 'network_disconnected');
+  assert.equal(route.found, true, 'a branch ending mid-way should be routable');
+});
+
+test('ways that cross WITHOUT an endpoint at the crossing stay separate', () => {
+  // The overpass case, and the reason the splitter is deliberately narrow: two
+  // ways passing through each other with neither ending there must NOT become
+  // connected, or a route would climb a bridge.
+  const g = buildGraph([
+    { coords: [offset(ORIGIN, 0, -200), offset(ORIGIN, 400, 200)], edgeClass: 'corridor', name: 'Diagonal' },
+    { coords: [offset(ORIGIN, 0, 200), offset(ORIGIN, 400, -200)], edgeClass: 'corridor', name: 'Other' },
+  ]);
+
+  // Both ways are unsplit: no vertex of either lies on the other's interior.
+  assert.equal(g.segments.length, 2, 'neither way should be split');
+  assert.equal(g.adj.size, 4, 'four endpoints, no shared node');
 });
 
 test('snapToGraph finds the nearest way and reports the distance', () => {

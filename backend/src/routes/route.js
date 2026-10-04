@@ -119,6 +119,10 @@ export default function createRouteRoutes({ graphRepo, repo }) {
             meters: Math.round(i.meters),
             names: i.names,
             edgeClasses: i.edgeClasses,
+            // Which of this island's edges, if any, came from a merged walk
+            // trace. The admin console offers a Remove button only for those,
+            // because imported OSM geometry is not a moderation decision.
+            traceEdgeIds: i.traceEdgeIds ?? [],
           }))
           : [],
         islandCount: stats.islands.length,

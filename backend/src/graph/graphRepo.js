@@ -26,9 +26,16 @@ function coordsFromGeoJSON(geometry) {
 export function assembleGraph(rows) {
   const edges = rows
     .map((r) => ({
+      // `id` is carried so a deleted edge can be found again by `edgeRemoved`.
+      // The Postgres loader does not select it, which is fine: there the row is
+      // already gone from the database and only the cache needs dropping.
+      id: r.id ?? null,
       osmId: r.osmId ?? null,
       name: r.name ?? null,
       edgeClass: r.edgeClass,
+      // Provenance. Anything other than 'walk-trace' came from OpenStreetMap
+      // and is shared truth the admin console must not offer to delete.
+      source: r.source ?? 'osm',
       surface: r.surface ?? null,
       coords: r.coords ?? coordsFromGeoJSON(r.geo),
     }))
@@ -58,9 +65,11 @@ export function createPostgresGraphRepo({ pool }) {
     if (!inflight) {
       inflight = pool
         .query(
-          `SELECT osm_id AS "osmId",
+          `SELECT id,
+                  osm_id AS "osmId",
                   name,
                   edge_class AS "edgeClass",
+                  source,
                   surface,
                   ST_AsGeoJSON(geom)::json AS geo
              FROM graph_edges
@@ -105,6 +114,18 @@ export function createPostgresGraphRepo({ pool }) {
     async edgeAdded() {
       cache = null;
     },
+
+    /**
+     * An edge was deleted.
+     *
+     * Also a no-op on Postgres, where the row is already gone. The in-memory
+     * version has to actually drop it: invalidating the cache alone would
+     * reload the same array and the deleted edge would keep routing people down
+     * a path an admin had just removed.
+     */
+    async edgeRemoved() {
+      cache = null;
+    },
   };
 }
 
@@ -142,6 +163,12 @@ export function createMemoryGraphRepo(rows = []) {
      */
     async edgeAdded(edge) {
       rows.push(edge);
+      cache = null;
+    },
+
+    async edgeRemoved(edgeId) {
+      const i = rows.findIndex((r) => r.id === edgeId);
+      if (i !== -1) rows.splice(i, 1);
       cache = null;
     },
   };

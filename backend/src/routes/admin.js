@@ -101,6 +101,60 @@ export default function createAdminRoutes({ repo, graphRepo, requireAdmin }) {
     }
   });
 
+  /**
+   * Remove a footpath that came from a walk trace.
+   *
+   * Merging a trace writes real geometry into `graph_edges`, so an admin who
+   * merges something wrong needs a way to take it back out. Without this the
+   * only remedy is direct SQL, which is exactly the situation the rest of the
+   * console exists to avoid.
+   *
+   * Scoped to `source = 'walk-trace'` on purpose: OSM geometry is the campus's
+   * shared source of truth and must not be deletable from here. Deleting one
+   * resets its trace to `pending` too, so a corrected recording can be merged
+   * again once the edge is gone.
+   */
+  router.delete('/admin/graph/edges/:id', async (req, res, next) => {
+    try {
+      const edge = await repo.getGraphEdge?.(req.params.id);
+      if (!edge) return res.status(404).json({ error: 'not_found' });
+
+      if (edge.source !== 'walk-trace') {
+        return res.status(409).json({ error: 'not_a_trace_edge' });
+      }
+
+      // The repository reopens the owning trace in the same transaction: an edge
+      // removed while its trace still read 'merged' would be unrecoverable
+      // through the API.
+      const result = await repo.deleteTraceEdge(req.params.id);
+      if (!result?.deleted) return res.status(404).json({ error: 'not_found' });
+
+      await repo.appendAudit?.({
+        actor: req.user.email,
+        action: 'graph.trace_edge_deleted',
+        entityType: 'graph_edge',
+        entityId: req.params.id,
+        beforeData: { edgeClass: edge.edgeClass, source: edge.source, name: edge.name },
+        afterData: { traceReopened: result.traceReopened },
+      });
+
+      // Both, and in this order: the in-memory graph has to actually drop the row,
+      // while Postgres only needs the cache dropped. Calling only invalidate()
+      // would leave the in-memory version routing people down a removed path.
+      await graphRepo.edgeRemoved?.(req.params.id);
+      graphRepo.invalidate?.();
+
+      res.json({
+        ok: true,
+        edgeId: req.params.id,
+        traceReopened: result.traceReopened,
+        stats: await graphRepo.getStats(),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // ── standing an account down ─────────────────────────────────────────
   // Deliberately separate from DELETE. Disabling keeps the row, its audit
   // trail and its review history; it only stops the account authenticating.

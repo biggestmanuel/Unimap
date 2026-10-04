@@ -255,7 +255,34 @@ export default function AdminApp() {
     }
   }
 
-  async function deleteUser(id, email) {
+  /**
+ * Remove a footpath that came from a merged walk trace.
+ *
+ * The undo for a merge that turned out to be wrong. Scoped server-side to
+ * trace-derived geometry, so imported OSM ways cannot be deleted from here.
+ */
+async function deleteTraceEdge(id, label) {
+  const ok = window.confirm(
+    `Remove "${label}" from the walk graph?\n\n`
+    + 'The walk trace goes back into the review queue, so a corrected recording '
+    + 'can be merged again. Imported OpenStreetMap ways cannot be removed here.',
+  );
+  if (!ok) return;
+  setFlash(null);
+  try {
+    const body = await api(`/admin/graph/edges/${id}`, { method: 'DELETE' });
+    setFlash(
+      body.traceReopened
+        ? 'Edge removed and the trace is back in the queue.'
+        : `Edge removed. ${body.stats?.totalWays ?? 0} ways now.`,
+    );
+    refresh();
+  } catch (err) {
+    setFlash(explain(err.message));
+  }
+}
+
+async function deleteUser(id, email) {
     // Spelled out rather than a bare confirm, because this is the one action
     // here that cannot be undone from the interface.
     const ok = window.confirm(
@@ -458,7 +485,9 @@ export default function AdminApp() {
                 <h3>Islands — unreachable from the network</h3>
                 <table className="admin-table">
                   <thead>
-                    <tr><th>Ways</th><th>Length</th><th>Names</th></tr>
+                    <tr>
+                      <th>Ways</th><th>Length</th><th>Names</th><th>Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {graph.islands.map((i, idx) => (
@@ -466,6 +495,23 @@ export default function AdminApp() {
                         <td>{i.ways}</td>
                         <td>{fmt(i.meters)}</td>
                         <td>{i.names.length ? i.names.join(', ') : '(unnamed)'}</td>
+                        <td className="admin-row-actions">
+                          {/* Only trace-derived geometry is removable, and the
+                              server refuses anything else, so the button
+                              appears only when there is something to remove. */}
+                          {i.traceEdgeIds?.length === 1 && (
+                            <button
+                              type="button"
+                              className="is-danger"
+                              onClick={() => deleteTraceEdge(
+                                i.traceEdgeIds[0],
+                                i.names[0] ?? 'this path',
+                              )}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

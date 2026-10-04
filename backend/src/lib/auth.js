@@ -21,8 +21,15 @@ const scrypt = promisify(scryptCb);
 const PARAMS = { N: 2 ** 16, r: 8, p: 1, keylen: 32 };
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 
-/** Constant-time string compare that tolerates differing lengths. */
-function safeEqual(a, b) {
+/**
+ * Constant-time string compare that tolerates differing lengths.
+ *
+ * Currently unused: session tokens are looked up by their SHA-256 digest, so
+ * there is no secret to compare in memory. Kept because it is the correct way to
+ * do this if a direct comparison is ever needed, and because removing it would
+ * mean re-deriving the length-leak reasoning later.
+ */
+export function safeEqual(a, b) {
   const ba = Buffer.from(String(a));
   const bb = Buffer.from(String(b));
   if (ba.length !== bb.length) {
@@ -103,7 +110,7 @@ export function sessionExpiry(from = Date.now()) {
   return new Date(from + SESSION_TTL_MS);
 }
 
-export { safeEqual, SESSION_TTL_MS };
+export { SESSION_TTL_MS };
 
 /**
  * Strip a user row down to what is safe to send.

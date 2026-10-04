@@ -63,40 +63,9 @@ export function lineLengthMeters(points) {
 }
 
 /**
- * Split a polyline at a fractional position along it. Used to cut a route
- * leg where it meets the snapped origin/destination.
+ * Interpolate along a segment. Used by the interior-junction splitter in
+ * router.js to place a new vertex exactly on a way.
  */
-export function sliceLine(points, fromT, toT) {
-  if (points.length < 2) return points.slice();
-  const total = lineLengthMeters(points);
-  const start = total * fromT;
-  const end = total * toT;
-
-  const out = [];
-  let walked = 0;
-  let started = false;
-
-  for (let i = 1; i < points.length; i += 1) {
-    const segLen = haversineMeters(points[i - 1], points[i]);
-    const segEnd = walked + segLen;
-
-    if (!started && segEnd >= start) {
-      const t = segLen === 0 ? 0 : (start - walked) / segLen;
-      out.push(interpolate(points[i - 1], points[i], t));
-      started = true;
-    }
-    if (started && segEnd >= end) {
-      const t = segLen === 0 ? 1 : (end - walked) / segLen;
-      out.push(interpolate(points[i - 1], points[i], t));
-      return out;
-    }
-    if (started) out.push(points[i]);
-    walked = segEnd;
-  }
-
-  return out.length >= 2 ? out : points.slice();
-}
-
 export function interpolate(a, b, t) {
   return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
 }

@@ -8,6 +8,7 @@ import createAdminRoutes from './routes/admin.js';
 import createTraceRoutes from './routes/trace.js';
 import { makeRequireAdmin } from './routes/auth.js';
 import { publicWriteLimiter, readLimiter } from './lib/rateLimit.js';
+import { securityHeaders } from './lib/csp.js';
 
 /**
  * App factory. The repository is a parameter so tests can inject an
@@ -42,6 +43,11 @@ export default function createApp({ repo, graphRepo, requireAdmin } = {}) {
   // it every client shares one rate-limit bucket, so one busy campus can lock
   // out everyone.
   app.set('trust proxy', process.env.TRUST_PROXY ?? 1);
+
+  // Before anything that could produce a response body, including the error
+  // handlers at the bottom, so a reflected string can never be treated as a
+  // document.
+  app.use(securityHeaders());
 
   app.use(cors());
   app.use(express.json({ limit: '64kb' }));

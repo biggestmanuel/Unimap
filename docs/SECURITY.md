@@ -193,14 +193,55 @@ so it deserves the same scrutiny as any other write path.
 - `geometry(LineString, 4326) NOT NULL` with `CHECK (ST_NPoints(geom) >= 2)` is
   the last line of defence.
 
-## Still to do
+## Response headers
 
-- **CSP headers.** Worth adding at the serving layer now that the deployment
-  target is known.
-- **Audit `legacy/`.** It is the archived vanilla app and still uses the public
-  OSRM demo server. It is not served, but it is in the repository.
-- **Rotate the Neon password.** It was set through the dashboard and shared
-  during setup; treat it as known to anyone who saw it.
+`backend/src/lib/csp.js` sets them on every response, including the error paths.
+
+| Header | Why |
+|---|---|
+| `Content-Security-Policy` | `default-src 'none'`, plus `base-uri`, `form-action`, `frame-ancestors` and `object-src` all `'none'` |
+| `X-Content-Type-Options: nosniff` | The load-bearing one. Stops a browser treating a JSON error body as HTML, which is the only realistic path from a POI name to script running in this origin. |
+| `X-Frame-Options: DENY` | Legacy fallback for `frame-ancestors` |
+| `Referrer-Policy: no-referrer` | Nothing here should leak a URL outward |
+| `Cross-Origin-Resource-Policy: same-site` | Conservative; the app is same-site for API traffic |
+
+The policy is permissive about `connect-src` on purpose. The browser-side app is
+served from a **different origin** (Vercel) than this API (Render), and a CSP
+here governs documents this origin serves — of which there are none. Policing
+the cross-origin fetch is CORS's job, and `cors()` already allows it.
+
+## Removing a merged footpath
+
+`DELETE /api/admin/graph/edges/:id` takes a trace-derived footpath back out.
+Scoped to `source = 'walk-trace'`: imported OSM geometry is the campus's shared
+source of truth and returns **409** if you try. Without this, undoing a bad merge
+meant direct SQL against the production database.
+
+The delete and the trace's return to the review queue happen in **one
+transaction**. Capturing the owning trace *before* the delete matters:
+`merged_edge_id` is `ON DELETE SET NULL`, so once the edge is gone there is
+nothing left to match the trace by. An edge removed while its trace still read
+`merged` would be unrecoverable through the API, since a merged trace can never
+be merged a second time.
+
+The graph repository needs `edgeRemoved`, not just `invalidate`. On Postgres the
+row is already deleted and dropping the cache suffices; in memory, invalidating
+alone would reload the same array and the removed path would keep routing people.
+
+Island stats carry `traceEdgeIds`, filtered on `source`. Every row has an id, so
+filtering for truthiness would name OSM geometry as removable and the console
+would offer a Remove button the server then refuses.
+
+## Sessions are swept
+
+`purgeExpiredSessions` runs hourly from `server.js`, unref'd so a pending sweep
+never holds the process open, and errors are logged rather than thrown — a
+cleanup job that can crash the API is worse than one that misses a run.
+
+This is a retention measure, not a security one. `resolveUser` already refuses
+an expired token, so a stale token can never authenticate. Without the sweep the
+table only grows, because the only other deletion is triggered by presenting an
+expired token, which a dormant deployment never does.
 
 ## Rate limiting
 

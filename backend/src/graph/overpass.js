@@ -196,6 +196,16 @@ export function analyseConnectivity(edges) {
     names: [...new Set(g.map((e) => e.name).filter(Boolean))],
     edgeClasses: [...new Set(g.map((e) => e.edgeClass))],
     osmIds: g.map((e) => e.osmId),
+    // Ids of the trace-derived edges in this island, if any.
+    //
+    // Filtered on `source`, not merely on having an id: every row has one, so
+    // filtering for truthiness would name imported OSM geometry as removable.
+    // The console would then offer a Remove button on rows the server refuses,
+    // which reads as a bug even though nothing dangerous happens.
+    traceEdgeIds: g
+      .filter((e) => e.source === 'walk-trace')
+      .map((e) => e.id)
+      .filter(Boolean),
   }));
 
   const routable = edges.filter((e) => mainIds.has(e.osmId));

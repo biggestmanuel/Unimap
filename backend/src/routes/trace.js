@@ -140,6 +140,9 @@ export default function createTraceRoutes({ repo, graphRepo, requireAdmin }) {
       // in-memory implementation has to append as well as invalidate, since it
       // has no database row to re-read.
       await graphRepo.edgeAdded?.({
+        // The id matters: `edgeRemoved` matches on it, so an edge added without
+        // one can never be taken back out.
+        id: merged.edge.id,
         edgeClass: merged.edge.edgeClass,
         name: merged.edge.name,
         surface: null,

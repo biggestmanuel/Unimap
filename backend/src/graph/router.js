@@ -48,7 +48,21 @@ export function buildGraph(edges) {
     list.push({ to: nodeKey(toPoint), toPoint, ...meta });
   };
 
-  for (const edge of edges) {
+  // Split each way where another way's vertex lands on its interior.
+  //
+  // OSM always splits a road at every node where something joins it, so a shared
+  // endpoint is the normal case and this changes nothing for real OSM data (the
+  // campus extract has zero interior junctions). It matters for geometry that
+  // did not come from OSM -- a merged walk trace, or an imported dataset that
+  // stores long unsplit ways -- where a branch ending on the middle of another
+  // way would otherwise be invisible to the router and the whole area would
+  // read as disconnected.
+  //
+  // Bounded by the same tolerance `nodeKey` uses, so the new vertices line up
+  // with the shared node the other way already has.
+  const split = splitAtInteriorJunctions(edges);
+
+  for (const edge of split) {
     const pts = edge.coords;
     if (!pts || pts.length < 2) continue;
     if (lineLengthMeters(pts) <= 0) continue;
@@ -82,6 +96,93 @@ export function buildGraph(edges) {
 
   return { adj, segments, edgeCount: edges.length };
 }
+
+/**
+ * Insert a vertex wherever another way's vertex lands on this way's interior.
+ *
+ * Only *vertex-on-interior* is handled, not full segment-segment intersection.
+ * That is the case that actually arises: a way ends partway along another, so
+ * its endpoint is a vertex that falls inside someone else's segment. Two ways
+ * that merely cross without either ending there are overpasses, and joining
+ * them would be wrong.
+ *
+ * Returns new edge objects; the input is not mutated, because `assembleGraph`
+ * keeps the original rows for stats and callers reuse them.
+ */
+function splitAtInteriorJunctions(edges) {
+  const usable = edges.filter((e) => e.coords && e.coords.length >= 2);
+  if (usable.length < 2) return edges;
+
+  // Every way's vertices, so a candidate can be tested against a way cheaply.
+  const vertices = [];
+  for (const e of usable) {
+    for (const p of e.coords) vertices.push(p);
+  }
+
+  const out = [];
+
+  for (const edge of usable) {
+    const coords = edge.coords;
+    const additions = [];
+
+    for (let i = 1; i < coords.length; i += 1) {
+      const a = coords[i - 1];
+      const b = coords[i];
+
+      for (const p of vertices) {
+        const proj = projectToSegment(p, a, b);
+        if (proj.distanceMeters > SPLIT_TOLERANCE_METERS) continue;
+
+        // Skip the segment's own endpoints: they are already vertices of it.
+        if (nodeKey(proj.point) === nodeKey(a)) continue;
+        if (nodeKey(proj.point) === nodeKey(b)) continue;
+
+        additions.push({ at: proj.t, point: proj.point, segment: i });
+      }
+    }
+
+    if (additions.length === 0) {
+      out.push(edge);
+      continue;
+    }
+
+    // Insert in coordinate order so the `t` values stay meaningful.
+    const bySegment = new Map();
+    for (const add of additions) {
+      if (!bySegment.has(add.segment)) bySegment.set(add.segment, []);
+      bySegment.get(add.segment).push(add);
+    }
+
+    const rebuilt = [coords[0]];
+    for (let i = 1; i < coords.length; i += 1) {
+      const adds = (bySegment.get(i) ?? [])
+        .sort((p, q) => p.at - q.at)
+        // Two ways meeting at the same spot produce the same key; keep one.
+        .filter((add, idx, list) => idx === 0
+          || nodeKey(add.point) !== nodeKey(list[idx - 1].point));
+
+      for (const add of adds) rebuilt.push(add.point);
+      rebuilt.push(coords[i]);
+    }
+
+    out.push({ ...edge, coords: rebuilt });
+  }
+
+  // Preserve any unusable edges rather than dropping them.
+  for (const e of edges) {
+    if (!e.coords || e.coords.length < 2) out.push(e);
+  }
+
+  return out;
+}
+
+/**
+ * How close a foreign vertex must be to a segment to count as being on it.
+ *
+ * Matches `nodeKey`'s 1 cm rounding, so a point that will hash to the same node
+ * key is treated as the same node. Anything looser would invent junctions.
+ */
+const SPLIT_TOLERANCE_METERS = 0.02;
 
 /**
  * Closest routable position to `point`.

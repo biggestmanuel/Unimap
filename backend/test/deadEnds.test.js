@@ -22,6 +22,26 @@ function routerDeadEnds(edges) {
   return n;
 }
 
+/** Connected components, as the router sees them. */
+function routerComponents(edges) {
+  const { adj } = buildGraph(edges);
+  const seen = new Set();
+  let n = 0;
+  for (const k of adj.keys()) {
+    if (seen.has(k)) continue;
+    n += 1;
+    const stack = [k];
+    seen.add(k);
+    while (stack.length) {
+      const c = stack.pop();
+      for (const l of adj.get(c) ?? []) {
+        if (!seen.has(l.to)) { seen.add(l.to); stack.push(l.to); }
+      }
+    }
+  }
+  return n;
+}
+
 test('a lone way has two dead ends', () => {
   const edges = [{
     edgeClass: 'corridor',
@@ -89,19 +109,30 @@ test('a T junction has three dead ends, none of them the junction', () => {
   assert.equal(routerDeadEnds(edges), 3, 'router must agree');
 });
 
-test('a branch meeting another way mid-segment is not connected', () => {
-  // Documented limitation, pinned so it cannot change silently: the router
-  // splits ways at their own vertices, so a junction that exists only as an
-  // interior coordinate of another way stays separate. Harmless for OSM data,
-  // which always splits at shared nodes.
+test('a branch meeting another way mid-segment IS connected', () => {
+  // This used to be the documented limitation: the router split ways only at
+  // their own vertices, so a junction existing only as an interior coordinate of
+  // another way stayed invisible. `buildGraph` now inserts the missing vertex, so
+  // a merged walk trace that ends partway along a road connects to it.
+  //
+  // Harmless for OSM data, which always splits at shared nodes -- the campus
+  // extract has zero interior junctions, so this changes nothing there.
   const edges = [
     { edgeClass: 'corridor', name: 'Through', coords: [{ lat: 4.79, lng: 6.979 }, { lat: 4.80, lng: 6.979 }] },
     { edgeClass: 'corridor', name: 'Branch', coords: [{ lat: 4.795, lng: 6.979 }, { lat: 4.795, lng: 6.984 }] },
   ];
+  // `analyseConnectivity` works on the raw rows, so it still reports two
+  // components for this shape. `buildGraph` -- what routing actually uses --
+  // splits the way and connects them. Asserting they agree here would be
+  // asserting the two do the same job, which they deliberately do not: the
+  // stats are a report on the source data, the graph is what you can walk on.
   const stats = analyseConnectivity(edges);
-  assert.equal(stats.groups, 2, 'the branch is its own component');
-  assert.equal(stats.deadEndCount, 4, 'every tip counts, including the unmatched junction point');
-  assert.equal(routerDeadEnds(edges), 4, 'router must agree');
+  assert.equal(stats.groups, 2, 'the raw rows still look like two components');
+
+  const router = routerComponents(edges);
+  assert.equal(router, 1, 'but the router can walk between them');
+  assert.equal(routerDeadEnds(edges), 3,
+    'the unmatched junction point is no longer a dead end');
 });
 
 test('an interior branch on a shared vertex adds no dead ends', () => {

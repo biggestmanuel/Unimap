@@ -53,8 +53,34 @@ const server = app.listen(port, () => {
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
+    clearInterval(sweep);
     server.close();
     await closePool();
     process.exit(0);
   });
 }
+
+/**
+ * Sweep expired sessions on a timer.
+ *
+ * `resolveUser` already deletes a session when it is presented after expiry, so
+ * this is not about correctness -- a stale token can never authenticate. It is
+ * about the table growing without bound on a deployment that is rarely touched:
+ * an admin who signs in once a month leaves twelve-hour rows behind forever.
+ *
+ * Deliberately unref'd, so a pending sweep never holds the process open, and
+ * failures are logged rather than thrown: a cleanup job that can crash the API
+ * is worse than one that misses a run.
+ */
+const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+const sweep = setInterval(async () => {
+  try {
+    const removed = await repo.purgeExpiredSessions();
+    if (removed > 0) console.log(`[unimap-api] swept ${removed} expired session(s)`);
+  } catch (err) {
+    console.error('[unimap-api] session sweep failed:', err.message);
+  }
+}, SWEEP_INTERVAL_MS);
+
+sweep.unref?.();

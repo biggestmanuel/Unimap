@@ -126,11 +126,11 @@ your own site.
 
 ```bash
 cd frontend
-npm test               # 190 unit + component tests (Vitest)
-npm run test:e2e       # Playwright, mobile + desktop
+npm test               # 192 unit + component tests (Vitest)
+npm run test:e2e       # 46 end-to-end tests (Playwright, mobile + desktop)
 
 cd ../backend
-npm test               # 251 tests (node:test + supertest)
+npm test               # 289 tests (node:test + supertest)
 ```
 
 The frontend suite includes **data integrity tests** that read the real
@@ -190,6 +190,19 @@ are snapped, within 25 m, and the distance moved is returned so a suspicious
 merge is visible. The middle of the walk is never moved: that part is the new
 information.
 
+**The graph is also split where another way's vertex lands mid-segment.** OSM
+always splits a road at a shared node, so this changes nothing for imported data
+— the campus extract has zero interior junctions. It matters for geometry that
+did not come from OSM, such as a merged trace: without it, a branch ending
+partway along a road is invisible to the router. Two ways that merely *cross*,
+with neither ending at the crossing, are an overpass and are deliberately left
+alone.
+
+**A bad merge can be undone.** `DELETE /api/admin/graph/edges/:id` removes a
+trace-derived footpath and returns its trace to the review queue, in one
+transaction. Imported OSM geometry returns 409 — it is shared truth, not a
+moderation decision.
+
 **Auth is real now.** scrypt password hashing, revocable server-side sessions
 with only a token digest stored, and a role gate on every admin route. The
 earlier "501 in production" placeholder only bit under `NODE_ENV=production`,
@@ -245,3 +258,7 @@ These need a person on campus, or a decision only you can make.
    campus traffic. See [`docs/TILES.md`](./docs/TILES.md).
 5. **Verify the Neon password in the console.** The one in `.env` works, but
    confirm it is the current one.
+
+Everything else in the "limitations" column has been fixed: interior junctions
+are connected, expired sessions are swept hourly, the dead helpers are gone, CSP
+headers are set, and a bad merge can be undone from the console.

@@ -339,7 +339,61 @@ describe('AdminApp user controls', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/no active sessions/i);
   });
 
-  it('explains the last-admin refusal instead of showing a code', async () => {
+  it('offers Remove only on islands containing a merged trace', async () => {
+  // The button is shown when the server says an island contains trace-derived
+  // geometry. Imported OSM ways are never removable, so an island with none must
+  // not get one.
+  install({
+    '/graph/stats': () => json({
+      totalWays: 324, connectedGroups: 43, routableMeters: 40432,
+      totalMeters: 49089, deadEndCount: 102, islandCount: 2,
+      byClass: [],
+      islands: [
+        { ways: 1, meters: 890, names: ['Walk trace abcd1234'], traceEdgeIds: ['e1'] },
+        { ways: 3, meters: 240, names: ['Library Road'], traceEdgeIds: [] },
+      ],
+    }),
+  });
+  await signIn();
+  await userEvent.click(screen.getByRole('button', { name: /graph health/i }));
+
+  const rows = screen.getAllByRole('row').filter((r) => /Walk trace|Library Road/.test(r.textContent));
+  expect(rows.length, 'both islands should be listed').toBe(2);
+
+  const traceRow = rows.find((r) => /Walk trace/.test(r.textContent));
+  const osmRow = rows.find((r) => /Library Road/.test(r.textContent));
+
+  expect(within(traceRow).getByRole('button', { name: /remove/i })).toBeTruthy();
+  expect(within(osmRow).queryByRole('button', { name: /remove/i })).toBeNull();
+});
+
+it('removes a merged edge through the delete endpoint', async () => {
+  install({
+    '/graph/stats': () => json({
+      totalWays: 324, connectedGroups: 43, routableMeters: 40432,
+      totalMeters: 49089, deadEndCount: 102, islandCount: 1,
+      byClass: [],
+      islands: [
+        { ways: 1, meters: 890, names: ['Walk trace abcd1234'], traceEdgeIds: ['e1'] },
+      ],
+    }),
+    '/admin/graph/edges/e1': () => json({ ok: true, edgeId: 'e1', traceReopened: true, stats: { totalWays: 323 } }),
+  });
+  await signIn();
+  await userEvent.click(screen.getByRole('button', { name: /graph health/i }));
+
+  const row = screen.getAllByRole('row').find((r) => /Walk trace/.test(r.textContent));
+  await userEvent.click(within(row).getByRole('button', { name: /remove/i }));
+
+  await waitFor(() => {
+    const call = calls.find((c) => c.method === 'DELETE');
+    expect(call).toBeTruthy();
+    expect(call.path).toBe('/admin/graph/edges/e1');
+  });
+  expect(await screen.findByRole('status')).toHaveTextContent(/back in the queue/i);
+});
+
+it('explains the last-admin refusal instead of showing a code', async () => {
     install({
       '/admin/users': () => json(USERS),
       '/admin/users/s1': () => json({ error: 'last_admin' }, 409),
