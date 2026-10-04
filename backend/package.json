@@ -12,6 +12,7 @@
     "graph:import": "node src/graph/importOsm.js",
     "graph:verify": "node scripts/verifyCampusRouting.js",
     "graph:gaps": "node scripts/auditCampusGaps.js",
+    "check": "node ../scripts/verify.js",
     "test": "node --test --experimental-test-module-mocks test/**/*.test.js"
   },
   "dependencies": {

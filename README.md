@@ -9,6 +9,16 @@ Unimap/
   backend/    Express API, PostGIS, walk graph, corrections + moderation
   legacy/     Pre-React vanilla build, kept as a reference only
   docs/       Security notes, map tile policy
+  scripts/    Repository-wide checks
+  AGENTS.md   Conventions for anyone (human or agent) changing this repo
+```
+
+The root `package.json` exists only for repo-wide commands. `backend/` and
+`frontend/` remain independent and keep their own lockfiles:
+
+```bash
+npm run check      # pre-commit checks, no database needed
+npm test           # both unit suites
 ```
 
 ## Quick start
@@ -122,16 +132,35 @@ your own site.
 | 6 | Icons, XSS audit, e2e coverage | done |
 | 7 | Trace merge, account revocation | done |
 
+## If you are an agent or a new contributor
+
+Read [`AGENTS.md`](./AGENTS.md) first. It records the conventions this repo
+depends on and the specific mistakes it has already made — the shell here is
+PowerShell, not bash; the dev port is 5199 for a reason; `.env` holds a live
+credential. Then run `npm run check`, which mechanically enforces the parts you
+can forget.
+
+The tests are the other half. `npm test` must be green before anything is
+pushed, and a test that fails for a reason that does not match its name is
+usually the bug: several of the best finds here were broken assertions rather
+than broken features.
+
 ## Tests
 
 ```bash
+npm run check          # from the root: credentials, ports, docs, scratch files
+
 cd frontend
 npm test               # 192 unit + component tests (Vitest)
 npm run test:e2e       # 46 end-to-end tests (Playwright, mobile + desktop)
 
 cd ../backend
-npm test               # 289 tests (node:test + supertest)
+npm test               # 291 tests (node:test + supertest)
 ```
+
+`npm run check` is worth running before every push. It exits non-zero on a
+problem, and each check corresponds to a mistake that actually happened here —
+see [`AGENTS.md`](./AGENTS.md).
 
 The frontend suite includes **data integrity tests** that read the real
 `unimap.geojson` and assert every POI has a unique name, a valid category,
@@ -239,9 +268,10 @@ derived from **OpenStreetMap**, which is licensed under the
 ## Docs
 
 - [`PLAN.md`](./PLAN.md) — backlog, phase status, and the bugs found along the way
-- [`docs/SECURITY.md`](./docs/SECURITY.md) — XSS rules and auth design
+- [`AGENTS.md`](./AGENTS.md) — **read before changing anything.** Shell, ports, credentials, and the mistakes this repo has already made
+- [`docs/SECURITY.md`](./docs/SECURITY.md) — XSS rules, auth design, response headers
 - [`docs/TILES.md`](./docs/TILES.md) — map tile policy, **needs a decision**
-- [`OVERNIGHT-PLAN.md`](./OVERNIGHT-PLAN.md) — the review-gated work plan
+- [`OVERNIGHT-PLAN.md`](./OVERNIGHT-PLAN.md) — the review-gated work plan and its results
 
 ## Manual steps you still need to do
 
