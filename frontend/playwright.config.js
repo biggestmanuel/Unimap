@@ -23,6 +23,12 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    // Generous, because some assertions here wait on deliberate backoff.
+    // The app retries a failed fetch three times with 600 ms then 1200 ms
+    // delays before it falls back to cached data, so the offline-recovery
+    // tests need longer than Playwright's 5 s default on a loaded machine --
+    // and a test that flakes here is a test people learn to ignore.
+    expect: { timeout: 15000 },
   },
 
   projects: [

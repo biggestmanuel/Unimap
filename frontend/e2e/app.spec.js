@@ -92,24 +92,66 @@ async function withoutIndexedDb(page) {
   });
 }
 
+/**
+ * Read a value from the app's IndexedDB, without ever *creating* the database.
+ *
+ * The obvious implementation -- `indexedDB.open('unimap')` -- is a trap. Omitted
+ * a version, it opens at version 1 and CREATES an empty database if none
+ * exists. If that beats the app's own `indexedDB.open('unimap', 1)`, the app
+ * then finds version 1 already present, `onupgradeneeded` never fires, and the
+ * `pois` store is never created. The app silently caches nothing, and any test
+ * waiting on the cache then fails for reasons that look nothing like its cause.
+ * That is what made this spec flaky at roughly one run in three.
+ *
+ * `indexedDB.databases()` lets us look before we leap.
+ */
+function readStore(page, store, key) {
+  return page.evaluate(
+    ({ store, key }) => new Promise((resolve) => {
+      if (typeof indexedDB === 'undefined') return resolve(null);
+
+      indexedDB.databases().then((dbs) => {
+        const exists = dbs.some((d) => d.name === 'unimap');
+        if (!exists) return resolve(null); // not created yet; caller retries
+
+        const req = indexedDB.open('unimap');
+        req.onerror = () => resolve(null);
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(store)) {
+            db.close();
+            return resolve(null);
+          }
+          const get = db.transaction(store, 'readonly').objectStore(store).get(key);
+          get.onsuccess = () => {
+            db.close();
+            resolve(get.result ?? null);
+          };
+          get.onerror = () => {
+            db.close();
+            resolve(null);
+          };
+        };
+        return undefined;
+      }).catch(() => resolve(null));
+    }),
+    { store, key },
+  );
+}
+
 /** Wait until the app has actually written the POI cache. */
 async function waitForCache(page) {
-  await page.waitForFunction(
-    () => new Promise((resolve) => {
-      if (typeof indexedDB === 'undefined') return resolve(false);
-      const req = indexedDB.open('unimap');
-      req.onerror = () => resolve(false);
-      req.onsuccess = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains('pois')) return resolve(false);
-        const get = db.transaction('pois', 'readonly').objectStore('pois').get('campus');
-        get.onsuccess = () => resolve(Boolean(get.result));
-        get.onerror = () => resolve(false);
-      };
-    }),
-    null,
-    { timeout: 10000 },
-  );
+  // Polled from Node, not from inside the page. An in-page waitForFunction
+  // re-runs its body on a timer and can leave a database connection or an open
+  // transaction behind between attempts, which on the emulated mobile profile
+  // was enough to make `indexedDB.databases()` block -- so the poll timed out
+  // intermittently on one profile only. Each attempt here opens, reads, closes.
+  await expect
+    .poll(async () => Boolean(await readStore(page, 'pois', 'campus')), {
+      timeout: 15000,
+      intervals: [250, 250, 500, 500, 1000],
+    })
+    .toBe(true);
 }
 
 test('shows the error state when the data fails and nothing can be cached', async ({ page }) => {
@@ -126,6 +168,11 @@ test('falls back to saved data when the network fails, and says so', async ({ pa
   // The realistic case: the student has used the app before and now has no
   // signal, so IndexedDB holds the campus directory.
   await waitForCache(page);
+  const cached = await readStore(page, 'pois', 'campus');
+  // Fail loudly and immediately if the cache is not the three-POI fixture.
+  // Otherwise this test waits out the full timeout on a text that cannot
+  // appear, and reports a symptom instead of the cause.
+  expect(cached, 'the campus record should be cached before the reload').toBeTruthy();
 
   await page.unroute('**/data/unimap.geojson');
   await page.route('**/data/unimap.geojson', (route) => route.fulfill({ status: 500, body: 'nope' }));
