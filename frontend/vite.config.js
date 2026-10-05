@@ -131,6 +131,18 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.js'],
+    // Vitest's default is 5000ms. The heaviest test here renders the whole
+    // admin console and takes ~1500ms unloaded, so the default leaves roughly
+    // 3x headroom -- which vanishes the moment the machine is busy. That was
+    // observed: five AdminApp tests failed on a loaded machine with
+    // "Test timed out in 5000ms" and zero assertion failures, then passed
+    // 24/24 minutes later with nothing else running.
+    //
+    // This does not hide a hang. Fifteen seconds against a test that normally
+    // finishes in one and a half is still a hang detector. It only stops a busy
+    // machine producing a red suite, which is worse than useless, because a
+    // suite that cries wolf gets ignored and then misses a real failure.
+    testTimeout: 15000,
     // src/ holds unit tests beside the code they cover; test/ holds the
     // shared navigation/offline helpers.
     include: ['src/**/*.test.{js,jsx}', 'test/**/*.test.{js,jsx}'],

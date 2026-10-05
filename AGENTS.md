@@ -258,6 +258,12 @@ Worth being blunt about the pattern, because it repeats:
 - A green test suite proves the tests describe current behaviour. It says
   nothing about whether they describe *correct* behaviour, and it never proves
   what is deployed.
+- A red suite is not automatically a bug either. Five AdminApp tests failed once
+  with `Test timed out in 5000ms` and **zero** assertion failures, on a machine
+  busy with something else; the same file passed 24/24 unloaded minutes later.
+  The tells were the failure type and the inflated timings — `setup` up 1.5x,
+  `environment` up 4x. Distinguish "the assertion is wrong" from "the machine
+  was too slow" before changing any code.
 
 ## Do not delete or overwrite work you did not write
 
