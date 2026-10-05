@@ -76,17 +76,29 @@ All green. Neon left with 1 user, 79 POIs, 324 edges (323 OSM + 1 merged demo),
 
 ## Known limitations, stated plainly
 
-- **A branch meeting another way's interior is not connected.** `buildGraph`
-  splits ways at their own vertices, which is correct for OSM data because OSM
-  always splits at shared nodes. Pinned by a test so it cannot change silently.
+**All four are fixed.** They were listed here when this file was written; the
+fixes landed the following session.
+
+- ~~A branch meeting another way's interior is not connected.~~ Fixed:
+  `buildGraph` now splits a way where a foreign vertex lands mid-segment. OSM
+  already splits at shared nodes so the campus data is unchanged byte for byte;
+  merged traces now attach properly.
+- ~~`purgeExpiredSessions` is never called.~~ Fixed: swept hourly from
+  `server.js`, unref'd, errors logged rather than thrown.
+- ~~CSP headers absent.~~ Fixed: `backend/src/lib/csp.js`, applied before any
+  handler so error paths carry them too.
+- ~~Dead code, not removed.~~ Partly: `sliceLine` deleted. `pointInPolygon` and
+  `safeEqual` are exported and untested, so deleting them would have removed 17
+  lines of coverage — they gained tests and a comment explaining why they are
+  kept instead.
+
+### Still true
+
 - **Endpoints can only snap to existing geometry.** A trace ending in open ground
   stays an island. That is intended — see `test/snap.test.js`.
-- **`purgeExpiredSessions` is never called.** Expired sessions are removed lazily
-  when presented. Bounded by usage, but it is an unbounded-over-time gap.
-- **Dead code, not removed:** `sliceLine`, `pointInPolygon`, `safeEqual` are
-  exported and never called. Left alone deliberately — deleting exported helpers
-  is a judgement call, not a 3am one.
-- **CSP headers** still absent.
+- **Two ways that merely cross, with neither ending at the crossing, are not
+  joined.** That is an overpass, and joining them would route people over a
+  bridge. Pinned by `test/interiorJunction.test.js`.
 
 ---
 

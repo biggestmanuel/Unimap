@@ -49,6 +49,12 @@ const server = app.listen(port, () => {
       '[unimap-api] no walk graph loaded — routes will fall back to straight lines',
     );
   }
+  // Which build this is. A deploy log gets read far more often than a health
+  // endpoint when someone wonders whether a push landed.
+  console.log(
+    `[unimap-api] build ${process.env.APP_VERSION ?? 'dev'}`
+    + ` (commit ${process.env.RENDER_GIT_COMMIT ?? 'local'})`,
+  );
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

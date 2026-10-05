@@ -53,7 +53,22 @@ export default function createApp({ repo, graphRepo, requireAdmin } = {}) {
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', (req, res) => {
-    res.json({ ok: true, service: 'unimap-api' });
+    // The build stamp exists because "is production running current code?" is
+    // otherwise unanswerable from outside. It cost a real debugging session: a
+    // fix was verified locally, pushed, and appeared to have no effect on the
+    // live site, because the live site was still running an older build. Now the
+    // answer is one request.
+    //
+    // Read from the environment rather than baked in at build time, so it works
+    // identically whether the app is started by npm, Render, or a bare `node`.
+    res.json({
+      ok: true,
+      service: 'unimap-api',
+      version: process.env.APP_VERSION ?? 'dev',
+      commit: process.env.RENDER_GIT_COMMIT ?? null,
+      branch: process.env.RENDER_GIT_BRANCH ?? null,
+      time: new Date().toISOString(),
+    });
   });
 
   // `requireAdmin` is a middleware, injectable so tests can stub it. The

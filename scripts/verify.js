@@ -11,6 +11,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import {
+  findSecrets, isPlaceholderValue, isLocalMatch, PG_URL_RE, LOCAL_HOST_RE,
+} from './lib/secretScan.js';
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const problems = [];
@@ -54,31 +57,13 @@ function walk(dir, acc = []) {
 // history during setup, in a screenshot and in a transcript.
 console.log('\n1. credentials in tracked files');
 
-const SECRET_PATTERNS = [
-  [/\bpostgres(?:ql)?:\/\/[^:]+:[^@{\s]+@/, 'a Postgres URL with an inline password'],
-  [/\bnpg_[A-Za-z0-9]{20,}/, 'a Neon API key or password'],
-  [/\bneondb_owner\b/, 'the Neon owner role name'],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'a private key'],
-  [/\bAKIA[0-9A-Z]{16}\b/, 'an AWS access key id'],
-  [/gh[pousr]_[A-Za-z0-9]{30,}/, 'a GitHub token'],
-  [/sk-[A-Za-z0-9]{32,}/, 'a Stripe-style secret key'],
-];
-
 let scanned = 0;
 for (const file of trackedFiles()) {
   if (!SOURCE_EXT.test(file)) continue;
   let text;
   try { text = readFileSync(join(ROOT, file), 'utf8'); } catch { continue; }
   scanned += 1;
-  for (const [re, what] of SECRET_PATTERNS) {
-    const m = text.match(re);
-    if (!m) continue;
-    // Placeholders and documentation examples are fine; a real value is not.
-    const sample = m[0];
-    const isExample = /your|example|placeholder|xxx|<\.\.\.|CHANGEME/i.test(sample)
-      || file === 'backend/.env.example'
-      || file.endsWith('docs/SECURITY.md');
-    if (isExample) continue;
+  for (const { what } of findSecrets(text, file)) {
     fail(`${file} appears to contain ${what}`);
   }
 }
@@ -116,19 +101,16 @@ for (const f of ['.env.example', 'frontend/.env.example']) {
   const text = readFileSync(full, 'utf8');
   // A template that contains a real credential is worse than no template.
   //
-  // localhost is exempt: postgres://unimap:unimap_dev@localhost is the local
+  // localhost is exempt: `postgres://unimap:unimap_dev@localhost` is the local
   // docker-compose default, not a secret. What must never appear here is a
   // connection string pointing at a real host.
-  const host = text.match(/postgres(?:ql)?:\/\/[^:]+:[^@{\s]+@([^\s/:]+)/)?.[1];
-  if (host && !/^(localhost|127\.0\.0\.1|host\.docker\.internal)$/i.test(host)) {
+  const host = text.match(PG_URL_RE)?.[1] ?? null;
+  if (host && !LOCAL_HOST_RE.test(host)) {
     fail(`${f} contains a connection string for a non-local host (${host}); `
       + 'a template must stay blank');
   }
-  for (const [re, what] of SECRET_PATTERNS) {
-    // The postgres rule above is the authority on connection strings; skip it
-    // here so a localhost example does not read as a breach.
-    if (re.source.includes('postgres')) continue;
-    if (re.test(text)) fail(`${f} contains ${what}; a template must stay blank`);
+  for (const { what } of findSecrets(text, f)) {
+    fail(`${f} contains ${what}; a template must stay blank`);
   }
 }
 
@@ -212,13 +194,16 @@ if (!exists(readme)) {
   // The match is anchored to a full word so `npm run test:e2e` does not read as
   // the script `test:e`. A regex that truncates at the colon reports a script
   // that plainly exists as missing, which is worse than not checking.
+  //
+  // The root package.json counts. It did not, and the omission was invisible:
+  // `check` and `test` exist in the sub-packages too, so the only root-only
+  // script the README mentions, `check:live`, was the first to expose it.
   const scripts = [...text.matchAll(/npm run ([a-z][a-z0-9]*(?::[a-z0-9]+)*)/g)].map((m) => m[1]);
-  const backendPkg = JSON.parse(readFileSync(join(ROOT, 'backend', 'package.json'), 'utf8'));
-  const frontendPkg = JSON.parse(readFileSync(join(ROOT, 'frontend', 'package.json'), 'utf8'));
-  const known = new Set([
-    ...Object.keys(backendPkg.scripts ?? {}),
-    ...Object.keys(frontendPkg.scripts ?? {}),
-  ]);
+  const known = new Set();
+  for (const pkg of ['', 'backend', 'frontend']) {
+    const json = JSON.parse(readFileSync(join(ROOT, pkg, 'package.json'), 'utf8'));
+    for (const name of Object.keys(json.scripts ?? {})) known.add(name);
+  }
   const missing = [...new Set(scripts)].filter((s) => !known.has(s));
   if (missing.length) {
     fail(`README references script(s) that do not exist: ${missing.join(', ')}`);
@@ -275,6 +260,37 @@ if (!exists(graphPath)) {
     }
   } catch (err) {
     fail(`walk-graph.json is not valid JSON: ${err.message}`);
+  }
+}
+
+// ── 8. the credential scanner still detects credentials ──────────────
+// Check 1 is worthless if the scanner has stopped working, and it did stop
+// working without anyone noticing: the placeholder exemption matched the
+// substring "example" anywhere in a value, so AWS's own documented example key
+// id passed clean -- as would any real password containing that word. A
+// security check that can be defeated by a substring needs its own test, run
+// from the same place as the check itself.
+//
+// The probe strings live in `lib/secretScan.probes.json` and are read from
+// there, so they cannot drift from the rules they exercise. That file is exempt
+// from check 1, as it has to contain things that look like secrets in order to
+// prove they are caught.
+console.log('\n8. credential scanner still detects credentials');
+
+const probesPath = join(ROOT, 'scripts', 'lib', 'secretScan.probes.json');
+if (!exists(probesPath)) {
+  fail('scripts/lib/secretScan.probes.json is missing, so check 1 cannot be trusted');
+} else {
+  const { cases } = JSON.parse(readFileSync(probesPath, 'utf8'));
+  for (const { label, sample, shouldCatch } of cases) {
+    const caught = findSecrets(sample).length > 0;
+    if (caught !== shouldCatch) {
+      fail(`scanner ${caught ? 'flagged' : 'missed'} "${label}" `
+        + `but should ${shouldCatch ? 'flag it' : 'not flag it'}`);
+    }
+  }
+  if (!problems.some((p) => p.startsWith('scanner '))) {
+    ok(`scanner behaves correctly on all ${cases.length} probe strings`);
   }
 }
 

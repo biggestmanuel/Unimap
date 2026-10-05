@@ -128,11 +128,11 @@ safe.
 ## Before committing
 
 ```bash
-cd backend && npm run check
+npm run check
 ```
 
-Or `node scripts/verify.js` from the repo root. It runs seven checks, each
-corresponding to a mistake that actually happened here:
+From the repo root. It runs eight checks, each corresponding to a mistake that
+actually happened here:
 
 | # | Check | Catches |
 |---|---|---|
@@ -143,9 +143,62 @@ corresponding to a mistake that actually happened here:
 | 5 | README accuracy | Wrong port, missing `VITE_API_BASE`, a script that does not exist, a broken doc link |
 | 6 | Scratch files | A `_debug.mjs` left committed |
 | 7 | Walk graph present | A fresh clone that cannot route at all |
+| 8 | Scanner self-test | The credential scanner quietly ceasing to detect anything |
 
 It is cheap, needs no database, and exits non-zero on a blocking problem. **Run
 it before you push, not after.**
+
+`npm run check:live` is separate and does need the network. It talks to the
+deployed API and site, and it is the only check that can catch a stale build, a
+missing environment variable, or a database that was never migrated. Unit tests
+run against `createMemoryRepo` and a mocked fetch; nothing else in this
+repository can tell you what production is actually serving.
+
+## A check that cannot fail is worse than no check
+
+`npm run check` was **red for its entire existence** and was reported green
+anyway. Two reasons, both worth remembering:
+
+- It flagged its own documentation. Check 1 scans every tracked source file,
+  including `scripts/verify.js`, whose comment quotes the localhost compose
+  default. The localhost exemption existed in check 2 and had never been
+  applied to check 1.
+- Nobody ran it. A check that is permanently red stops being read, and then it
+  catches nothing at all.
+
+While fixing that, three more real defects surfaced in the scanner itself:
+
+- **The placeholder exemption matched a substring.** `/example/i` anywhere in a
+  value exempted AWS's own documented example key id — and any real password
+  containing "example". A rule defeatable by a substring is not a rule. The
+  placeholder word must stand alone.
+- **The Stripe pattern used a hyphen.** Real Stripe keys use `sk_`, so it had
+  never matched one.
+- **The IPv6 loopback exemption was dead code.** The host character class
+  excluded `:`, so `[::1]` could never be captured.
+
+None of these were visible while the check was red for an unrelated reason.
+That is check 8: it feeds 17 probe strings through the real rules, so the
+scanner is now known to detect what it claims to detect. Adding an escape hatch
+means adding a test for the thing it escapes.
+
+## Fixing a bug, measure it
+
+The router snapped each end of a route to the single nearest piece of geometry.
+With 42 islands on campus, the nearest is often a driveway, so both ends landed
+in different components and the answer was a straight line drawn through a
+building while a real path stood 25 m away.
+
+Widening the snap to several candidates fixed it, and cost **+320% per routed
+request** at three candidates. Two candidates cost **+59%** and produced
+identical answers. The lesson is the boring one: measure the cost of a fix on
+real data, do not guess, and if the expensive option buys nothing, do not take
+it.
+
+The same change then needed component labels so a doomed search could be skipped
+before it ran. Without them, a fallback cost ~200 ms; with them, microseconds.
+"Cheap" and "expensive" here were a 200 ms difference on a user-facing request,
+and neither number was visible without running the real 1520-segment graph.
 
 ## The mistakes in this file were all avoidable
 
@@ -154,12 +207,16 @@ Worth being blunt about the pattern, because it repeats:
 - Every shell error was PowerShell-not-bash. Check the shell before writing the
   command, not after it fails.
 - Every "the fix did nothing" moment was stale state — an old process, a cached
-  graph, a reused dev server. Before believing a surprising result, ask *what
-  actually answered*.
+  graph, a reused dev server, an un-redeployed Render build. Before believing a
+  surprising result, ask *what actually answered*.
 - Every security problem here was a secret that got printed, logged, or pasted
   when a derived fact (a length, a hostname, a boolean) would have done.
 - Documentation in `AGENTS.md` is advice. `npm run check` is enforcement. Trust
-  the second one.
+  the second one — and if the second one is red, fix it before trusting
+  anything else.
+- A green test suite proves the tests describe current behaviour. It says
+  nothing about whether they describe *correct* behaviour, and it never proves
+  what is deployed.
 
 ## Do not delete or overwrite work you did not write
 

@@ -2,9 +2,11 @@
   "name": "unimap",
   "private": true,
   "version": "0.2.0",
+  "type": "module",
   "description": "Rivers State University campus navigation PWA. Workspaces are independent; this root exists only for repository-wide checks.",
   "scripts": {
     "check": "node scripts/verify.js",
+    "check:live": "node scripts/verifyLive.js",
     "test": "npm --prefix backend test && npm --prefix frontend test",
     "test:e2e": "npm --prefix frontend run test:e2e",
     "build": "npm --prefix frontend run build"

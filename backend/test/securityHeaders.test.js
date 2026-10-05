@@ -35,6 +35,35 @@ test('a successful response carries the security headers', async () => {
   }
 });
 
+test('health reports which build is deployed', async () => {
+  // Added after a fix was verified locally, pushed, and appeared to have no
+  // effect on the live site — because the live site was still on an older
+  // build. This makes that question answerable in one request.
+  const res = await request(app()).get('/health');
+  assert.equal(res.status, 200);
+  assert.ok('version' in res.body, 'health must report a version');
+  assert.ok('commit' in res.body, 'health must report a commit');
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.service, 'unimap-api');
+  assert.ok(!Number.isNaN(Date.parse(res.body.time)), 'time must be a valid date');
+});
+
+test('the build stamp comes from the environment, not a hardcoded literal', async () => {
+  const { APP_VERSION, RENDER_GIT_COMMIT } = process.env;
+  process.env.APP_VERSION = 'test-1.2.3';
+  process.env.RENDER_GIT_COMMIT = 'abc1234';
+  try {
+    const res = await request(app()).get('/health');
+    assert.equal(res.body.version, 'test-1.2.3');
+    assert.equal(res.body.commit, 'abc1234');
+  } finally {
+    if (APP_VERSION === undefined) delete process.env.APP_VERSION;
+    else process.env.APP_VERSION = APP_VERSION;
+    if (RENDER_GIT_COMMIT === undefined) delete process.env.RENDER_GIT_COMMIT;
+    else process.env.RENDER_GIT_COMMIT = RENDER_GIT_COMMIT;
+  }
+});
+
 test('a 404 carries them too', async () => {
   // The error paths are exactly where a reflected string could appear, so this
   // is the case that matters.

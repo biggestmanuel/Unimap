@@ -18,6 +18,7 @@ The root `package.json` exists only for repo-wide commands. `backend/` and
 
 ```bash
 npm run check      # pre-commit checks, no database needed
+npm run check:live # read-only checks against the deployed API and site
 npm test           # both unit suites
 ```
 
@@ -93,6 +94,17 @@ TRUST_PROXY=1
 `TRUST_PROXY` matters: without it every client shares one rate-limit bucket, so
 one busy campus can lock out everyone.
 
+**After every deploy, check that it actually landed:**
+
+```bash
+curl -s https://unimap-wvvk.onrender.com/health
+```
+
+`commit` is the git SHA the live process is running. If it does not match
+`git rev-parse HEAD`, Render has not finished deploying. This is worth doing —
+a fix that "has no effect" on the live site is almost always an old build still
+serving, not a broken fix.
+
 **Use the direct connection, not the pooled one.** PgBouncer can break the
 `BEGIN`/`COMMIT` and `CREATE EXTENSION` that migrations rely on.
 
@@ -149,18 +161,24 @@ than broken features.
 
 ```bash
 npm run check          # from the root: credentials, ports, docs, scratch files
+npm run check:live     # against the deployed API and site (needs network)
 
 cd frontend
 npm test               # 192 unit + component tests (Vitest)
 npm run test:e2e       # 46 end-to-end tests (Playwright, mobile + desktop)
 
 cd ../backend
-npm test               # 291 tests (node:test + supertest)
+npm test               # 307 tests (node:test + supertest)
 ```
 
 `npm run check` is worth running before every push. It exits non-zero on a
 problem, and each check corresponds to a mistake that actually happened here —
 see [`AGENTS.md`](./AGENTS.md).
+
+`npm run check:live` is the only thing here that can tell you what production is
+actually serving. It is read-only, safe to run at any time, and it compares the
+commit reported by `/health` against your local `HEAD` so a deploy that did not
+land is obvious instead of inferred from a symptom.
 
 The frontend suite includes **data integrity tests** that read the real
 `unimap.geojson` and assert every POI has a unique name, a valid category,
@@ -186,9 +204,24 @@ with it would be wasteful.
 **The walk graph is built per-vertex, not per-way.** This is the single most
 important thing to know about the router. OSM splits roads into many short
 ways, and a branch often meets a way at a vertex that is *interior* to that
-way. Building the graph only at way endpoints fragments a 241-way campus
-network into 240 disconnected pieces, and every route silently falls back to a
-straight line. Connectivity is decided by shared coordinates.
+way. Building the graph only at way endpoints fragments the campus network into
+240 disconnected pieces, and every route silently falls back to a straight
+line. Connectivity is decided by shared coordinates.
+
+`buildGraph` also splits a way where another way's vertex lands on its
+**interior**, which OSM data never needs and merged walk traces always do. Ways
+that merely cross, with neither ending at the crossing, are an overpass and are
+deliberately left unjoined.
+
+**The closest geometry is not always the right geometry.** The campus has 42
+islands — a driveway, a footpath that never met the network — so the nearest
+thing to where you are standing is sometimes not connected to anything. Snapping
+to it and nothing else meant a student near an island got a straight line drawn
+through a building while a real path stood 25 m away. Each end of a route now
+considers its `SNAP_CANDIDATES` nearest positions and the cheapest total wins,
+off-network legs included, so a farther snap can never win by making you walk
+further. `buildGraph` labels connected components up front, which is what keeps
+a hopeless request costing microseconds instead of exhausting a search.
 
 **A straight line is never presented as a route.** When no graph path exists
 the API returns `found: false` with a reason, and the UI draws a dashed line
