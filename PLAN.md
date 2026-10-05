@@ -253,6 +253,14 @@ running against live data or real HTTP rather than fixtures.
   locally, pushed, and appeared to have no effect because the live site was on an
   older build. `/health` now reports the running commit and `npm run check:live`
   compares it against local `HEAD`.
+- **An audit of all 44 commits found no exposed credential**, but reaching that
+  answer took three rounds of false positives, each of which had to be disproved
+  rather than acted on. The tree scanner had been reporting the same class of
+  problem all along: it could not see anything outside the working tree.
+  `npm run audit:history` now scans every blob, every unreachable object and
+  every commit message, and its decisive assertion is the live password: taken
+  out of `backend/.env`, held in memory, and searched for literally. Patterns
+  guess at what a secret looks like; that asks the real question.
 
 ### From earlier phases
 

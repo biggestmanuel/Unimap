@@ -7,6 +7,7 @@
   "scripts": {
     "check": "node scripts/verify.js",
     "check:live": "node scripts/verifyLive.js",
+    "audit:history": "node scripts/auditHistory.js",
     "test": "npm --prefix backend test && npm --prefix frontend test",
     "test:e2e": "npm --prefix frontend run test:e2e",
     "build": "npm --prefix frontend run build"

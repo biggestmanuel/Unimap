@@ -154,6 +154,40 @@ missing environment variable, or a database that was never migrated. Unit tests
 run against `createMemoryRepo` and a mocked fetch; nothing else in this
 repository can tell you what production is actually serving.
 
+`npm run audit:history` is the third command, and it covers the one thing the
+other two cannot. `npm run check` scans the files in the working tree. A
+credential that was committed once and then deleted is invisible to it and fully
+present in the object store, in every clone, and on the remote forever.
+
+That audit found nothing real — but it took three rounds to get there, and each
+round was a false positive I had to disprove rather than a secret I could act on:
+
+- **34 "hardcoded secret assignment" hits** were all test fixtures. They are
+  classified as such only when the file is a test **and** the literal uses at
+  most two character classes. Both conditions, because whitelisting
+  `backend/test/` wholesale would hide a real secret pasted into a test — and
+  because a rule that switches itself off too easily is the bug that already bit
+  check 1 twice.
+- **Four AWS key ids and one Postgres URL** were in *unreachable* objects left by
+  my own scanner test earlier that day, which `git add`-ed a fake credential and
+  then removed it. Never committed, never pushed, but persistent in `.git` until
+  `git gc --prune=now`. **Never test a secret scanner by committing a fake
+  secret**: if that were ever run during a real incident, it would commit the
+  very thing being protected.
+- **One "secret" was `password: 'wrong-password'`** in my own live smoke test, a
+  value whose purpose is to be rejected. `wrong` and `bogus` are now recognised
+  as placeholder words, with probes pinning that `myworship7` is still caught.
+
+The most valuable part is not the pattern list. It is the check that takes the
+live password out of `backend/.env` and searches every object for that literal.
+Patterns guess at what a secret looks like; that asks the actual question. It
+holds the value in memory, prints only a yes/no, and is the only assertion that
+can say *nothing to rotate* with confidence.
+
+Run it before making a repository public, before sharing a clone, and after any
+suspected exposure. It takes about 50 seconds, which is why it is not part of
+`npm run check`.
+
 ## A check that cannot fail is worse than no check
 
 `npm run check` was **red for its entire existence** and was reported green
@@ -178,9 +212,16 @@ While fixing that, three more real defects surfaced in the scanner itself:
   excluded `:`, so `[::1]` could never be captured.
 
 None of these were visible while the check was red for an unrelated reason.
-That is check 8: it feeds 17 probe strings through the real rules, so the
+That is check 8: it feeds 20 probe strings through the real rules, so the
 scanner is now known to detect what it claims to detect. Adding an escape hatch
 means adding a test for the thing it escapes.
+
+**Never write a realistic secret in a comment.** Two of the false positives in
+the history audit were `scripts/verify.js` and `scripts/auditHistory.js`
+documenting the scanner in prose that quoted an example in the exact shape the
+scanner looks for. Both were correct detections. The instinct to illustrate with
+a concrete example is what puts them there — describe the shape instead, and put
+any literal you truly need in the exempt probes file.
 
 ## Fixing a bug, measure it
 

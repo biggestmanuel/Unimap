@@ -45,10 +45,16 @@ export const LOCAL_HOST_RE = /^(localhost|127\.0\.0\.1|host\.docker\.internal|\[
  *
  * The literal that exposed this lives in `secretScan.probes.json`, which is
  * exempt from the scan. Naming it here would defeat the point of that.
+ *
+ * `wrong` and `bogus` are in the list because test and smoke-test code
+ * routinely pairs a real-looking value with a deliberately invalid one, to
+ * prove the code rejects it. A value whose entire purpose is to be wrong is not
+ * a credential. The word-boundary requirement is what stops this becoming
+ * another substring exemption: `myworship7` is still caught.
  */
 export function isPlaceholderValue(sample) {
   if (/<\.\.\.>/.test(sample)) return true;
-  return /(?:^|[^A-Za-z0-9])(your|placeholder|changeme|example|xxx|dummy|sample)(?:[^A-Za-z0-9]|$)/i
+  return /(?:^|[^A-Za-z0-9])(your|placeholder|changeme|example|xxx|dummy|sample|wrong|bogus)(?:[^A-Za-z0-9]|$)/i
     .test(sample);
 }
 

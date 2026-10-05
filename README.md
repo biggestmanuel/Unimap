@@ -17,9 +17,10 @@ The root `package.json` exists only for repo-wide commands. `backend/` and
 `frontend/` remain independent and keep their own lockfiles:
 
 ```bash
-npm run check      # pre-commit checks, no database needed
-npm run check:live # read-only checks against the deployed API and site
-npm test           # both unit suites
+npm run check          # pre-commit checks, no database needed
+npm run check:live     # read-only checks against the deployed API and site
+npm run audit:history  # scan every git object for credentials (~50s)
+npm test               # both unit suites
 ```
 
 ## Quick start
@@ -162,6 +163,7 @@ than broken features.
 ```bash
 npm run check          # from the root: credentials, ports, docs, scratch files
 npm run check:live     # against the deployed API and site (needs network)
+npm run audit:history  # every git object, not just the working tree
 
 cd frontend
 npm test               # 192 unit + component tests (Vitest)
@@ -179,6 +181,14 @@ see [`AGENTS.md`](./AGENTS.md).
 actually serving. It is read-only, safe to run at any time, and it compares the
 commit reported by `/health` against your local `HEAD` so a deploy that did not
 land is obvious instead of inferred from a symptom.
+
+`npm run audit:history` covers what neither can. `npm run check` reads the files
+in the working tree; a credential committed once and then deleted is invisible
+to it and still sitting in the object store. This scans every blob reachable
+from every ref, every unreachable object, and every commit message — then does
+the one check that matters most, which is to take the live password out of
+`backend/.env` and search every object for that exact value. It prints only
+booleans, lengths and hosts; never a credential.
 
 The frontend suite includes **data integrity tests** that read the real
 `unimap.geojson` and assert every POI has a unique name, a valid category,
