@@ -221,51 +221,86 @@ function splitAtInteriorJunctions(edges) {
  */
 const SPLIT_TOLERANCE_METERS = 0.02;
 
+/** Is a projection within the caller's snap radius? */
+function withinRange(proj, maxDistanceMeters) {
+  return proj.distanceMeters <= maxDistanceMeters;
+}
+
 /**
- * Closest routable position to `point`.
- * Returns `{ segment, point, distanceMeters, enterKey, exitKey }` or null.
+ * Closest candidate within range, allocating only once.
  *
- * `enterKey`/`exitKey` are the keys of the two ends of the matched segment,
- * so a caller can start the search from either end of a way it is standing
- * in the middle of.
+ * The allocation-free path, and the one that matters: trace ingestion calls the
+ * snapping function once per recorded point -- up to 20,000 of them -- with no
+ * distance limit, so it walks all 1,520 campus segments every time. Building a
+ * candidate object per segment here costs an allocation per segment per point.
+ * Measured at 2,000 points: 779us per point with a per-segment object, against
+ * 555us without one. The object is built once, at the end, for the winner.
+ *
+ * This loop is deliberately not shared with `projectionsWithin`, which does
+ * build a candidate per segment. Sharing them would mean making the hot path
+ * allocate, which is the slower of the two by 40%.
  */
-export function snapToGraph(point, graph, { maxDistanceMeters = Infinity } = {}) {
-  let best = null;
+function nearestProjection(point, graph, maxDistanceMeters) {
+  let bestDistance = Infinity;
+  let bestProj = null;
+  let bestSegment = null;
 
   for (const seg of graph.segments) {
     const proj = projectToSegment(point, seg.a, seg.b);
-    if (proj.distanceMeters > maxDistanceMeters) continue;
-    if (!best || proj.distanceMeters < best.distanceMeters) {
-      best = { segment: seg, ...proj };
+    if (!withinRange(proj, maxDistanceMeters)) continue;
+    if (proj.distanceMeters < bestDistance) {
+      bestDistance = proj.distanceMeters;
+      bestProj = proj;
+      bestSegment = seg;
     }
   }
 
-  if (!best) return null;
-  return describeSnap(best);
+  if (!bestProj) return null;
+  return { segment: bestSegment, ...bestProj };
 }
 
-/** Shared shape for a single projection, whatever found it. */
-function describeSnap({ segment, point: at, distanceMeters, t }) {
-  const aKey = nodeKey(segment.a);
-  const bKey = nodeKey(segment.b);
+/**
+ * Every candidate within range, unsorted.
+ *
+ * The allocating path, used only when several candidates are wanted. `findRoute`
+ * bounds it with `maxSnapMeters`, so the array stays small.
+ */
+function projectionsWithin(point, graph, maxDistanceMeters) {
+  const found = [];
+  for (const seg of graph.segments) {
+    const proj = projectToSegment(point, seg.a, seg.b);
+    if (!withinRange(proj, maxDistanceMeters)) continue;
+    found.push({ segment: seg, ...proj });
+  }
+  return found;
+}
 
-  // A projection clamped to an end of the segment *is* that node, which is
-  // what lets a caller sitting past the end of a way still route from it.
-  const landedOnKey = t >= 1 ? bKey : t <= 0 ? aKey : null;
+/**
+ * Closest routable position to `point`, or null.
+ *
+ * Returns `{ segment, point, distanceMeters, t, component }`. `t` is where the
+ * projection sits along the segment, 0 at `a` and 1 at `b`; the router needs it
+ * to price the walk to each end. `component` is the connected component the
+ * position sits in, used to skip pairings that cannot connect.
+ *
+ * Kept as its own export because trace ingestion calls it once per recorded
+ * point and only ever wants one answer.
+ */
+export function snapToGraph(point, graph, { maxDistanceMeters = Infinity } = {}) {
+  const best = nearestProjection(point, graph, maxDistanceMeters);
+  return best ? toSnap(graph, best) : null;
+}
 
+/** Turn a raw projection into the shape callers consume. */
+function toSnap(graph, cand) {
   return {
-    segment,
-    point: at,
-    distanceMeters,
-    // Where the projection sits along the segment, 0 at `a` and 1 at `b`.
-    // The route cost needs this to price the walk to each end.
-    t,
-    // The two ends of the matched segment, so a search can start from either.
-    enterKey: bKey,
-    exitKey: aKey,
-    landedOnKey,
-    // True when the projection sits on a node rather than mid-segment.
-    onNode: landedOnKey !== null,
+    segment: cand.segment,
+    point: cand.point,
+    distanceMeters: cand.distanceMeters,
+    t: cand.t,
+    // Null when the graph predates labelling, which makes `findRoute` fall
+    // back to searching rather than wrongly skipping a pairing.
+    component: graph.component?.get(nodeKey(cand.segment.a)) ?? null,
   };
 }
 
@@ -307,14 +342,14 @@ export function snapCandidates(
   graph,
   { maxDistanceMeters = Infinity, limit = SNAP_CANDIDATES } = {},
 ) {
-  const found = [];
-
-  for (const seg of graph.segments) {
-    const proj = projectToSegment(point, seg.a, seg.b);
-    if (proj.distanceMeters > maxDistanceMeters) continue;
-    found.push({ segment: seg, ...proj });
+  // One candidate needs neither an array nor a sort, and skipping both matters
+  // for the same reason `nearestProjection` avoids them.
+  if (limit <= 1) {
+    const best = nearestProjection(point, graph, maxDistanceMeters);
+    return best ? [toSnap(graph, best)] : [];
   }
 
+  const found = projectionsWithin(point, graph, maxDistanceMeters);
   found.sort((a, b) => a.distanceMeters - b.distanceMeters);
 
   const out = [];
@@ -324,12 +359,7 @@ export function snapCandidates(
       (kept) => haversineMeters(kept.point, cand.point) < MIN_CANDIDATE_GAP_METERS,
     );
     if (tooClose) continue;
-
-    const snap = describeSnap(cand);
-    // Which component this position sits in, so `findRoute` can rule out
-    // pairings without searching. Null when the graph predates labelling.
-    snap.component = graph.component?.get(nodeKey(cand.segment.a)) ?? null;
-    out.push(snap);
+    out.push(toSnap(graph, cand));
   }
 
   return out;
@@ -341,13 +371,28 @@ export function snapCandidates(
  */
 const MIN_CANDIDATE_GAP_METERS = 0.05;
 
-/** Core search. `goalPoint` is only used for the heuristic. */
+/**
+ * Core search. `goalPoint` is only used for the heuristic.
+ *
+ * Returns two totals, and the distinction matters:
+ *
+ *   - `costMeters` drives the search. Footpath links carry
+ *     `FOOTPATH_COST_FACTOR`, so the router prefers a corridor when the detour
+ *     is small. That is a *preference*, not a fact about the walk.
+ *   - `lengthMeters` is the real distance walked, accumulated alongside.
+ *
+ * They used to be the same number, which meant the preference leaked into the
+ * number shown to the student: a route with 577 m of footpath reported 86 m
+ * more than the student actually walks, and the time derived from it was a
+ * minute long. The polyline drawn on the map was real geometry the whole time,
+ * so the app contradicted itself.
+ */
 function search(graph, startKey, goalKey, goalPoint) {
   if (startKey === goalKey) {
-    return { found: true, costMeters: 0, links: [] };
+    return { found: true, costMeters: 0, lengthMeters: 0, links: [] };
   }
 
-  const open = [{ key: startKey, g: 0, f: 0, links: [] }];
+  const open = [{ key: startKey, g: 0, l: 0, f: 0, links: [] }];
   const best = new Map([[startKey, 0]]);
 
   while (open.length > 0) {
@@ -360,7 +405,7 @@ function search(graph, startKey, goalKey, goalPoint) {
     const cur = open.splice(bi, 1)[0];
 
     if (cur.key === goalKey) {
-      return { found: true, costMeters: cur.g, links: cur.links };
+      return { found: true, costMeters: cur.g, lengthMeters: cur.l, links: cur.links };
     }
 
     for (const link of graph.adj.get(cur.key) ?? []) {
@@ -369,14 +414,21 @@ function search(graph, startKey, goalKey, goalPoint) {
       best.set(link.to, g);
 
       // Straight-line distance to the destination. Admissible because every
-      // cost is a length in metres, so the heuristic never overestimates.
+      // cost is a length in metres multiplied by a factor of at least one, so
+      // the heuristic never overestimates.
       const h = haversineMeters(link.toPoint, goalPoint);
 
-      open.push({ key: link.to, g, f: g + h, links: [...cur.links, link] });
+      open.push({
+        key: link.to,
+        g,
+        l: cur.l + link.lengthMeters,
+        f: g + h,
+        links: [...cur.links, link],
+      });
     }
   }
 
-  return { found: false, costMeters: Infinity, links: [] };
+  return { found: false, costMeters: Infinity, lengthMeters: Infinity, links: [] };
 }
 
 /**
@@ -384,11 +436,16 @@ function search(graph, startKey, goalKey, goalPoint) {
  *
  * Neither end is necessarily a node -- a caller standing mid-way along a way
  * has to walk to one of that way's ends before a graph search means anything.
- * So the cost of a route is
+ * So a route is
  *
  *     (origin -> its segment's end) + (graph) + (destination's end -> destination)
  *
- * and the cheapest combination of the two ends on each side wins.
+ * and the cheapest of the four combinations of segment ends wins.
+ *
+ * "Cheapest" is cost, deliberately: the footpath penalty is how a corridor is
+ * preferred over an equally short footpath, and applying it here as well would
+ * count the same preference twice. `totalMeters` is the real walked distance
+ * and is what the caller reports; `totalCost` is what the caller compares.
  */
 function searchBetween(graph, a, b) {
   const aEnds = endsOf(a.segment);
@@ -401,13 +458,17 @@ function searchBetween(graph, a, b) {
       const res = search(graph, aEnds[ai].key, bEnds[bi].key, b.point);
       if (!res.found) continue;
 
-      const totalMeters = partialMeters(a.segment, a.t, ai)
+      const totalCost = partialMeters(a.segment, a.t, ai)
         + res.costMeters
         + partialMeters(b.segment, b.t, bi);
+      const totalMeters = partialMeters(a.segment, a.t, ai)
+        + res.lengthMeters
+        + partialMeters(b.segment, b.t, bi);
 
-      if (!best || totalMeters < best.totalMeters) {
+      if (!best || totalCost < best.totalCost) {
         best = {
           ...res,
+          totalCost,
           totalMeters,
           aEnd: aEnds[ai],
           bEnd: bEnds[bi],
@@ -426,6 +487,8 @@ function searchBetween(graph, a, b) {
         found: true,
         links: [],
         costMeters: direct,
+        lengthMeters: direct,
+        totalCost: direct,
         totalMeters: direct,
         sameSegment: true,
       };
@@ -433,7 +496,12 @@ function searchBetween(graph, a, b) {
   }
 
   return best ?? {
-    found: false, costMeters: Infinity, links: [], totalMeters: Infinity,
+    found: false,
+    costMeters: Infinity,
+    lengthMeters: Infinity,
+    totalCost: Infinity,
+    totalMeters: Infinity,
+    links: [],
   };
 }
 
@@ -545,8 +613,11 @@ export function findRoute(graph, from, to, { maxSnapMeters = 50, walkSpeedMps = 
   //     long
   //
   // Both are the same bug: trusting a single snap. `SNAP_CANDIDATES` bounds the
-  // work to a handful of searches, and the off-network legs are inside `total`,
-  // so a farther snap can never win by making the walk longer.
+  // work to a handful of searches, and the off-network legs are inside the
+  // total, so a farther snap can never win by making the walk longer.
+  //
+  // Selection is on *cost*, so the footpath preference applies once, from the
+  // search, rather than twice. Reporting is on real length.
   let best = null;
 
   // Candidates are nearest-first, so the first connected pairing gives a usable
@@ -562,22 +633,31 @@ export function findRoute(graph, from, to, { maxSnapMeters = 50, walkSpeedMps = 
       }
 
       if (best) {
-        // Straight-line distance is a lower bound on the true walking distance,
-        // so if even the optimistic total cannot beat the best route found so
-        // far, the search would be wasted.
+        // Straight-line distance is a lower bound on both the real distance and
+        // the cost, since every cost is a length multiplied by a factor of at
+        // least one. So if even the optimistic total cannot beat the best route
+        // found so far, the search would be wasted.
         const optimistic = ac.distanceMeters
           + bc.distanceMeters
           + haversineMeters(ac.point, bc.point);
-        if (optimistic >= best.total) continue;
+        if (optimistic >= best.cost) continue;
       }
 
       const res = searchBetween(graph, ac, bc);
       if (!res.found) continue;
 
-      const total = res.totalMeters + ac.distanceMeters + bc.distanceMeters;
-      if (best && total >= best.total) continue;
+      const cost = res.totalCost + ac.distanceMeters + bc.distanceMeters;
+      if (best && cost >= best.cost) continue;
 
-      best = { total, a: ac, b: bc, res };
+      best = {
+        cost,
+        a: ac,
+        b: bc,
+        res,
+        // The distance the student is actually told, which is not the cost the
+        // router minimised.
+        distance: res.totalMeters + ac.distanceMeters + bc.distanceMeters,
+      };
     }
   }
 
@@ -607,7 +687,10 @@ export function findRoute(graph, from, to, { maxSnapMeters = 50, walkSpeedMps = 
     coords.push(to);
   }
 
-  const distanceMeters = res.totalMeters + a.distanceMeters + b.distanceMeters;
+  // Real walked distance, not the cost the router minimised. These differ by
+  // FOOTPATH_COST_FACTOR on every footpath metre, and the map polyline above is
+  // built from real geometry, so anything else would contradict the drawing.
+  const distanceMeters = best.distance;
 
   return {
     found: true,

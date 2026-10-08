@@ -127,16 +127,43 @@ console.log('\n7. rate limiting');
 // A trace that goes nowhere is rejected by validation before it can cost
 // anything, but the limiter sits in front of the handler, so this still
 // exercises the middleware.
+//
+// `publicWriteLimiter` is capacity 12, refill one per 10s, so 13 requests is
+// the fewest that can prove the limiter works. It used to send 20, which bought
+// nothing and emptied the bucket twice over.
+//
+// The residual cost is real and worth stating rather than hiding: this leaves
+// the calling client's bucket empty for about ten seconds, so a student behind
+// the same NAT could be refused one trace submission if this is run while they
+// are using the app. Run it, then leave it alone for a minute.
+//
+// That cost is only small because buckets are keyed by `req.ip`. Without
+// `trust proxy` — the `TRUST_PROXY` environment variable on Render — every
+// request appears to come from the proxy, so *all* users share one bucket and
+// this check rate-limits the entire campus. That cannot be verified from
+// outside, so it is stated rather than asserted.
 let limited = false;
-for (let i = 0; i < 20; i += 1) {
+let retryAfter = null;
+for (let i = 0; i < 13; i += 1) {
   const res = await get(`${api}/api/traces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ points: [[6.98, 4.79]] }),
   });
-  if (res.status === 429) { limited = true; break; }
+  if (res.status === 429) {
+    limited = true;
+    retryAfter = res.headers?.get('retry-after') ?? null;
+    break;
+  }
 }
-check('the public write endpoint rate limits', limited);
+// `Retry-After` from the 429, not `X-RateLimit-Remaining` from the responses
+// before it. `/api/traces` also passes through the read limiter, whose capacity
+// is 120, so the remaining count belongs to a different bucket and says
+// nothing about the write limiter being tested here.
+check('the public write endpoint rate limits', limited,
+  limited ? `Retry-After: ${retryAfter ?? 'absent'}s` : '');
+note('bucket state',
+  'this emptied the calling client\'s bucket for ~10s; check TRUST_PROXY=1 on Render');
 
 // ── 8. the frontend is served, and points at this API ────────────────
 console.log('\n8. frontend');

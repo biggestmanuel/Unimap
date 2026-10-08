@@ -255,6 +255,17 @@ Worth being blunt about the pattern, because it repeats:
 - Documentation in `AGENTS.md` is advice. `npm run check` is enforcement. Trust
   the second one — and if the second one is red, fix it before trusting
   anything else.
+- **Cost is not distance.** `buildGraph` multiplies footpath cost by
+  `FOOTPATH_COST_FACTOR` so a corridor wins over an equally short footpath. That
+  number is for *choosing* a route. It used to be reported as the distance too,
+  so every footpath metre counted 1.15 times: 1.4% over across a sample of real
+  routes, 3.7% on the worst, and the turn-by-turn legs — drawn from real
+  geometry — disagreed with the stated distance on the same route. A preference
+  leaked into a fact. `search` now accumulates length alongside cost.
+- **Reported figures must be checkable against the geometry you drew.** The
+  distance the student sees and the sum of the leg lengths are computed
+  independently, which is the only reason this was caught. Two numbers derived
+  from the same accumulator cannot disagree, so they prove nothing.
 - A green test suite proves the tests describe current behaviour. It says
   nothing about whether they describe *correct* behaviour, and it never proves
   what is deployed.

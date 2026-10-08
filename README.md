@@ -95,6 +95,13 @@ TRUST_PROXY=1
 `TRUST_PROXY` matters: without it every client shares one rate-limit bucket, so
 one busy campus can lock out everyone.
 
+`TRUST_PROXY` matters more than it looks. Without it every client shares one
+rate-limit bucket, so one busy campus locks out everyone — and `npm run check:live`
+empties the calling client's bucket for about ten seconds while it proves the
+limiter works. If `TRUST_PROXY` is unset on Render that ten seconds is the entire
+campus. Confirm it is set in the Render dashboard; it cannot be checked from
+outside.
+
 **After every deploy, check that it actually landed:**
 
 ```bash
@@ -178,9 +185,18 @@ problem, and each check corresponds to a mistake that actually happened here —
 see [`AGENTS.md`](./AGENTS.md).
 
 `npm run check:live` is the only thing here that can tell you what production is
-actually serving. It is read-only, safe to run at any time, and it compares the
-commit reported by `/health` against your local `HEAD` so a deploy that did not
-land is obvious instead of inferred from a symptom.
+actually serving. It is read-only apart from one section, and that section says
+so in its own output. It compares the commit reported by `/health` against your
+local `HEAD` so a deploy that did not land is obvious instead of inferred from a
+symptom.
+
+**Cost and distance are different numbers.** `buildGraph` multiplies footpath cost
+by a factor so the router prefers a corridor when the detour is small. That
+preference steers which route is chosen and nothing else: the distance shown to
+the student, and the time derived from it, are the real walked length, and they
+agree with the polyline drawn on the map to within a rounding error. Conflating
+the two once made every footpath metre count 1.15 times, so a route read 3.7%
+longer than it was and the app contradicted its own drawing.
 
 `npm run audit:history` covers what neither can. `npm run check` reads the files
 in the working tree; a credential committed once and then deleted is invisible

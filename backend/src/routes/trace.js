@@ -10,6 +10,17 @@ import { snapToGraph } from '../graph/router.js';
 import { SNAP_TOLERANCE_METERS } from '../graph/snap.js';
 
 /**
+ * How many of a trace's points are snapped when measuring how far the walk went
+ * from the mapped network.
+ *
+ * 400 bounds that work at roughly 200 ms whatever the trace length. Anything at
+ * or below the limit is measured exhaustively, which covers every trace a person
+ * has realistically recorded; the schema permits 20,000 points, and snapping all
+ * of them would spend about ten seconds of CPU on the upload request.
+ */
+const OFF_GRAPH_SAMPLE_SIZE = 400;
+
+/**
  * Student walk traces.
  *
  * The loop this closes: the app notices the user is walking somewhere the
@@ -58,9 +69,20 @@ export default function createTraceRoutes({ repo, graphRepo, requireAdmin }) {
       const graph = await graphRepo.getGraph();
       let maxOffGraphMeters = null;
       if (graph.segments.length > 0) {
+        // Sampled, not exhaustive, and the cap is load-bearing. Snapping walks
+        // all ~1,500 campus segments per point at roughly 0.5 ms, so the 20,000
+        // points the schema permits would spend about ten seconds of CPU on the
+        // upload request, holding a core on a single-instance deployment.
+        //
+        // This figure is a reviewer's signal for how far a recorded walk strayed
+        // from the mapped network, not a precise measurement, and an evenly
+        // spaced sample of a continuous walk answers that perfectly well.
+        // Anything at or below the sample size is measured exhaustively, which
+        // covers every trace anyone has actually recorded.
+        const step = Math.max(1, Math.ceil(coords.length / OFF_GRAPH_SAMPLE_SIZE));
         let worst = 0;
-        for (const p of coords) {
-          const snap = snapToGraph(p, graph);
+        for (let i = 0; i < coords.length; i += step) {
+          const snap = snapToGraph(coords[i], graph);
           const d = snap ? snap.distanceMeters : Infinity;
           if (!Number.isFinite(d)) {
             worst = Infinity;
