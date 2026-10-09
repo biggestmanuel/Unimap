@@ -125,6 +125,35 @@ safe.
 - Merged traces become `footpath`, never `corridor`, and endpoints are snapped
   within 25 m. The middle of the walk is never moved.
 
+## Commit and push after every change
+
+**Never end a turn with a file change uncommitted. Push every commit.**
+
+Work here has been lost before: a session ended with a working tree full of
+uncommitted work, and an evening of verified fixes that existed on one machine
+only. The cost is not the time to redo them — it is that nobody can afterwards
+tell which of them were ever tested.
+
+What that means in practice:
+
+- **Commit as soon as a change is coherent and its checks pass.** Not after every
+  line edited — a commit per edit produces a history nobody can read and makes
+  `git bisect` worthless — but never leave a finished thing sitting uncommitted
+  while you go and do something else.
+- **Push every commit.** There is no other branch to fall back on, so an unpushed
+  commit is a commit that exists on exactly one machine.
+- **Before finishing a turn**, both of these must be empty:
+  `git status --short` and `git log origin/main..HEAD`.
+
+If something will not survive to the next turn, commit it anyway and say in the
+message that it is work in progress. A labelled WIP commit beats lost work, and
+`git commit --amend` tidies it up later.
+
+The one exception, and it is not a small one: **never commit a file change that
+introduced a real credential.** Rotate first, confirm the old value is dead with
+`npm run audit:history`, then commit. A pushed secret is not a mistake you can
+`git rm` your way out of.
+
 ## Before committing
 
 ```bash
@@ -144,6 +173,7 @@ actually happened here:
 | 6 | Scratch files | A `_debug.mjs` left committed |
 | 7 | Walk graph present | A fresh clone that cannot route at all |
 | 8 | Scanner self-test | The credential scanner quietly ceasing to detect anything |
+| 9 | Key-bearing file types | A committed `.pem`, `.p12` or `.npmrc`, which check 1 reads as content and can miss |
 
 It is cheap, needs no database, and exits non-zero on a blocking problem. **Run
 it before you push, not after.**
@@ -222,6 +252,15 @@ documenting the scanner in prose that quoted an example in the exact shape the
 scanner looks for. Both were correct detections. The instinct to illustrate with
 a concrete example is what puts them there — describe the shape instead, and put
 any literal you truly need in the exempt probes file.
+
+**An allow-list of what to scan fails open.** Check 1 listed ten file extensions
+and quietly skipped everything else — 18 tracked files, including
+`unimap.geojson`, a data file anyone could paste a key into. Whatever nobody
+thought of was unchecked, which is the worst way for a security check to be
+wrong: it looks like coverage. It is now a deny-list of types that cannot be
+read as text, so an unanticipated file is scanned rather than skipped, and check
+9 catches key-bearing types by *extension*, because a PEM is a header plus base64
+and the base64 rule needs 40 unbroken characters before it fires.
 
 ## Fixing a bug, measure it
 

@@ -9,7 +9,7 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { extname, join, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   findSecrets, isPlaceholderValue, isLocalMatch, PG_URL_RE, LOCAL_HOST_RE,
@@ -37,7 +37,45 @@ function trackedFiles() {
   return out.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
-const SOURCE_EXT = /\.(js|jsx|mjs|css|json|md|html|sql|yml|yaml)$/i;
+/**
+ * What the scanner in check 1 is willing to read as text.
+ *
+ * This used to be an allow-list of ten extensions, which quietly excluded 18
+ * tracked files — including `unimap.geojson`, a data file anyone could have
+ * pasted a key into, and every `.txt` and `.sh`. An allow-list of what to scan
+ * fails open: whatever nobody thought of is silently unchecked. This is now a
+ * deny-list of what cannot be read as text, so an unanticipated file type is
+ * scanned rather than skipped.
+ */
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|ico|bmp|tiff?|woff2?|ttf|otf|eot|pdf|zip|gz|br|mp[34]|webm|wasm|mp3|ogg|wav)$/i;
+
+/** True when a tracked file is worth scanning for credentials. */
+function isScannable(file) {
+  return !BINARY_EXT.test(file);
+}
+
+/**
+ * File types that must never be committed at all.
+ *
+ * Check 9. A `.pem`, `.key` or `.p12` is a private key whatever else it
+ * contains, and nothing in check 1 would necessarily notice: a PEM is a header
+ * plus base64, and the base64 rule needs 40+ unbroken characters to fire. The
+ * type is the signal here, so the check is on the type.
+ */
+const SECRET_FILE_TYPES = {
+  '.pem': 'a private key or certificate',
+  '.key': 'a private key',
+  '.p12': 'a PKCS#12 bundle, which contains keys',
+  '.pfx': 'a PKCS#12 bundle, which contains keys',
+  '.jks': 'a Java keystore',
+  '.keystore': 'a keystore',
+  '.ppk': 'a PuTTY private key',
+  '.kdbx': 'a password database',
+  '.netrc': 'a netrc file, which holds login credentials',
+  '.htpasswd': 'a password file',
+  '.npmrc': 'an npm config file, which can hold an auth token',
+};
+
 const SKIP_DIR = new Set(['node_modules', '.git', 'dist', 'test-results', 'playwright-report', 'coverage']);
 
 /** Every source file in the repo, tracked or not, minus build output. */
@@ -47,7 +85,7 @@ function walk(dir, acc = []) {
     const full = join(dir, name);
     const st = statSync(full);
     if (st.isDirectory()) walk(full, acc);
-    else if (SOURCE_EXT.test(name)) acc.push(full);
+    else if (isScannable(name)) acc.push(full);
   }
   return acc;
 }
@@ -59,9 +97,13 @@ console.log('\n1. credentials in tracked files');
 
 let scanned = 0;
 for (const file of trackedFiles()) {
-  if (!SOURCE_EXT.test(file)) continue;
+  if (!isScannable(file)) continue;
   let text;
   try { text = readFileSync(join(ROOT, file), 'utf8'); } catch { continue; }
+  // Binary that slipped past the extension list. Decoding produces byte soup
+  // that matches credential patterns by accident, which is how a scanner starts
+  // reporting noise nobody reads.
+  if (text.includes('\u0000')) continue;
   scanned += 1;
   for (const { what } of findSecrets(text, file)) {
     fail(`${file} appears to contain ${what}`);
@@ -292,6 +334,44 @@ if (!exists(probesPath)) {
   if (!problems.some((p) => p.startsWith('scanner '))) {
     ok(`scanner behaves correctly on all ${cases.length} probe strings`);
   }
+}
+
+// ── 9. no file that can carry a private key is tracked ───────────────
+// Check 1 reads file *contents*, which is the wrong tool for a `.pem`: a PEM is
+// a header plus base64 lines, and the base64 rule needs 40 unbroken characters
+// before it fires, so a key in the standard layout can be committed without
+// tripping anything. The extension is the reliable signal, so this checks the
+// extension.
+//
+// Found by reviewing what check 1 does not look at. It was an allow-list of ten
+// extensions, which fails open: whatever nobody thought of is unchecked. That
+// silently excluded 18 tracked files, among them `unimap.geojson` -- a data file
+// anyone could paste a key into. Check 1 is now a deny-list of unreadable types.
+console.log('\n9. no key-bearing file types tracked');
+
+const trackedSecretTypes = [];
+for (const file of trackedFiles()) {
+  const ext = extname(file).toLowerCase();
+  if (SECRET_FILE_TYPES[ext]) trackedSecretTypes.push(`${file} (${SECRET_FILE_TYPES[ext]})`);
+}
+if (trackedSecretTypes.length) {
+  for (const t of trackedSecretTypes) fail(`${t} is tracked; it must be gitignored, not committed`);
+} else {
+  ok(`none of ${Object.keys(SECRET_FILE_TYPES).length} key-bearing types are tracked`);
+}
+
+// Assert the allow-list this replaced would have missed these are now covered,
+// so a future narrowing cannot quietly reintroduce the gap.
+const MUST_SCAN = [
+  'frontend/public/data/unimap.geojson',
+  '.env.example',
+  '.gitignore',
+];
+const unscanned = MUST_SCAN.filter((f) => !isScannable(f));
+if (unscanned.length) {
+  fail(`tracked but not scanned for credentials: ${unscanned.join(', ')}`);
+} else {
+  ok(`all ${MUST_SCAN.length} text assets the old allow-list skipped are scanned`);
 }
 
 // ── summary ──────────────────────────────────────────────────────────

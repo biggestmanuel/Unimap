@@ -17,3 +17,19 @@ backend/coverage/
 # OSM tiles are fetched on demand and must never be committed
 *.osm.pbf
 *.osrm*
+
+# Anything that can carry a private key. `npm run check` rejects these too, but
+# ignoring them means a `git add -A` cannot stage one in the first place. The two
+# together are deliberate: the ignore stops the accident, the check catches the
+# deliberate override.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.ppk
+*.kdbx
+.netrc
+.htpasswd
+.npmrc

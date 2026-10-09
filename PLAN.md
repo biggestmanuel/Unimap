@@ -136,7 +136,7 @@ Items marked ✅ are done.
   by presenting one, which a dormant deployment never does.
 - ✅ **Repository-wide checks** (`npm run check`) covering credentials, ports,
   docs accuracy and scratch files, plus `AGENTS.md` recording the conventions.
-  Eight checks, the eighth proving the credential scanner still detects
+  Nine checks, the eighth proving the credential scanner still detects
   credentials — the scanner had quietly stopped matching Stripe keys and any
   password containing the word "example".
 - ✅ **`npm run check:live`** — read-only checks against the deployed API and
