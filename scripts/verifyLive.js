@@ -54,6 +54,18 @@ if (health.body) {
   check('reports ok', health.body.ok === true);
   check('reports a version', Boolean(health.body.version),
     `version=${health.body.version} commit=${health.body.commit ?? 'n/a'}`);
+  // Proxy trust is invisible from outside and its failure is silent: with it
+  // off, every student shares one rate-limit bucket and one busy moment locks
+  // out the campus. Asserting it here is why it is in /health at all, and it
+  // saves checking a dashboard.
+  const tp = health.body.trustProxy;
+  if (tp === undefined) {
+    note('proxy trust not reported',
+      'this build predates the /health field; cannot be verified from here');
+  } else {
+    check('trusts the reverse proxy', tp.enabled === true,
+      tp.enabled ? `enabled, ${tp.hops ?? '?'} hop(s)` : 'DISABLED - every client shares one rate-limit bucket');
+  }
 }
 
 // ── 2. security headers ──────────────────────────────────────────────

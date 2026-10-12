@@ -253,6 +253,29 @@ scanner looks for. Both were correct detections. The instinct to illustrate with
 a concrete example is what puts them there — describe the shape instead, and put
 any literal you truly need in the exempt probes file.
 
+**An environment variable is always a string, and the library may not want one.**
+`app.set('trust proxy', process.env.TRUST_PROXY ?? 1)` looked fine and would have
+crashed the deploy the first time anyone typed the obvious thing. Express reads
+*any* string as an address list, so `TRUST_PROXY=false` threw
+`TypeError: invalid IP address: false` at startup — as did `no`, `off`, `true` and
+`yes`. Only `0`, `1`, `2` worked. Someone following the documentation and turning
+proxy trust off would get a stack trace naming an IP parser, not the variable
+they set. Parse env vars deliberately and reject nonsense *by name*.
+
+**Default to the safe value and make the dangerous one observable.** The default
+of one trusted hop was already correct, and several rounds of advice had called a
+missing `TRUST_PROXY` the dangerous case. It is not. What actually mattered was
+that the setting was invisible from outside, so a misconfiguration could only be
+discovered by a student complaining. It is now in `/health` and asserted by
+`npm run check:live`.
+
+**Third-party services fail transiently; assume you will hit a bad minute.**
+Overpass answered 504, then timed out, then 406 while I was querying it. The
+importer had a mirror list but only one pass through it, so a bad minute meant a
+failed import. It now retries once after a pause and keeps its refusal to treat
+an empty result as "no roads exist" — which is the property that actually
+matters, and which a retry must never weaken.
+
 **An allow-list of what to scan fails open.** Check 1 listed ten file extensions
 and quietly skipped everything else — 18 tracked files, including
 `unimap.geojson`, a data file anyone could paste a key into. Whatever nobody

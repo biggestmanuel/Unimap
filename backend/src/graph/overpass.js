@@ -53,8 +53,16 @@ export function overpassQuery(bbox = CAMPUS_BBOX) {
   return `[out:json][timeout:180];way["highway"](${b});out geom;`;
 }
 
-/** Overpass mirrors, tried in order -- any one of them can be busy. */
+/**
+ * Overpass mirrors, tried in order -- any one of them can be busy.
+ *
+ * `private.coffee` is first because it was the only one of five that answered
+ * during a session where the others returned 504 and timed out. Community-run
+ * mirrors come and go, so this list is expected to be edited; the ordering is
+ * "most reliable from here lately", not authoritative.
+ */
 const MIRRORS = [
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.osm.ch/api/interpreter',
@@ -264,7 +272,10 @@ export function analyseConnectivity(edges) {
  * Fetch Overpass, trying each mirror before giving up. Overpass mirrors are
  * community-run and one of them returning 429 or 504 is routine, not fatal.
  */
-export async function fetchOverpass(bbox = CAMPUS_BBOX, { timeoutMs = 180000, mirrors = MIRRORS } = {}) {
+export async function fetchOverpass(
+  bbox = CAMPUS_BBOX,
+  { timeoutMs = 180000, mirrors = MIRRORS, rounds = 2, onRetry = null } = {},
+) {
   const body = `data=${encodeURIComponent(overpassQuery(bbox))}`;
   const failures = [];
 
@@ -301,8 +312,24 @@ export async function fetchOverpass(bbox = CAMPUS_BBOX, { timeoutMs = 180000, mi
     }
   }
 
+  // All mirrors failed at once. Observed during a real session: one returned
+  // 504, one timed out, one answered 406. Overpass outages are usually a matter
+  // of seconds, so one more pass after a pause is the difference between a
+  // thirty-second wait and a failed import. `refusing to treat an empty result
+  // as no roads exist` stays true either way -- we still throw rather than
+  // writing an empty graph.
+  if (rounds > 1) {
+    const pause = 4000 * rounds;
+    console.warn(
+      `[overpass] all ${mirrors.length} mirrors failed, waiting ${pause}ms for round ${rounds}`,
+    );
+    await new Promise((r) => { setTimeout(r, pause); });
+    return fetchOverpass(bbox, { timeoutMs, mirrors, rounds: rounds - 1, onRetry: failures });
+  }
+
+  const detail = onRetry ? ` earlier: ${onRetry.join('; ')}.` : '';
   throw new Error(
-    `All Overpass mirrors failed: ${failures.join('; ')}. `
+    `All Overpass mirrors failed: ${failures.join('; ')}.${detail} `
     + 'Refusing to treat an empty result as "no roads exist".',
   );
 }

@@ -23,6 +23,20 @@ npm run audit:history  # scan every git object for credentials (~50s)
 npm test               # both unit suites
 ```
 
+### Map tiles
+
+The basemap uses the public OpenStreetMap tile servers, which is fine for
+development and light use and **not** fine as a permanent answer — the OSM usage
+policy prohibits heavy use and there is no SLA. Choosing a provider needs an
+account or a server, so that decision is yours; `docs/TILES.md` has the options.
+
+What is no longer true is that a failure would be invisible. `MapShell` had no
+`tileerror` listener, so a throttled campus and a student in a basement both saw
+an identical grey grid. There is now a quiet bar that tells them apart, names the
+tile host when the server is refusing, and says plainly that the rest of the app
+still works. It appears only after six consecutive failures and clears on the
+first success.
+
 ## Quick start
 
 ```bash
@@ -95,12 +109,17 @@ TRUST_PROXY=1
 `TRUST_PROXY` matters: without it every client shares one rate-limit bucket, so
 one busy campus can lock out everyone.
 
-`TRUST_PROXY` matters more than it looks. Without it every client shares one
-rate-limit bucket, so one busy campus locks out everyone — and `npm run check:live`
-empties the calling client's bucket for about ten seconds while it proves the
-limiter works. If `TRUST_PROXY` is unset on Render that ten seconds is the entire
-campus. Confirm it is set in the Render dashboard; it cannot be checked from
-outside.
+`TRUST_PROXY` is parsed rather than passed straight to Express, because an
+environment variable is always a string and Express reads *any* string as an
+address list. `TRUST_PROXY=false` used to throw `TypeError: invalid IP address:
+false` during startup, so the obvious way to spell "off" was the one way that
+crashed the deploy. `0`, `1`, `2`, `true`, `false`, `yes`, `no`, `on` and `off`
+now all mean what they look like, and anything else fails with a message naming
+the variable. Unset trusts one hop, which is right for Render.
+
+`/health` reports the effective setting as `trustProxy`, and `npm run check:live`
+asserts it — so a deployment with proxy trust off is visible from outside instead
+of being a silent failure where every student shares one rate-limit bucket.
 
 **After every deploy, check that it actually landed:**
 

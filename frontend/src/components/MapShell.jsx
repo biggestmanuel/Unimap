@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import PoiMarkerLayer from './PoiMarkerLayer.jsx';
 import UserMarkerLayer from './UserMarkerLayer.jsx';
 import RouteLine from './RouteLine.jsx';
 import MapEvents from './MapEvents.jsx';
+import TileWatcher from './TileWatcher.jsx';
+import { tileHost } from '../lib/tileStatus.js';
 import { CAMPUS_CENTER, CAMPUS_ZOOM } from '../lib/categories.js';
 
 /**
@@ -43,6 +45,25 @@ export default function MapShell({
   onMapClick,
   children,
 }) {
+  const [tileProblem, setTileProblem] = useState(null);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+  );
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  // Stable identity, so `TileWatcher` does not re-subscribe on every render.
+  const onTileStatus = useCallback((status) => setTileProblem(status), []);
+
   return (
     <div className="map-shell">
       <MapContainer
@@ -60,6 +81,7 @@ export default function MapShell({
           maxZoom={MAX_ZOOM}
         />
         <MapEvents onClick={onMapClick} onReady={onMapReady} />
+        <TileWatcher onStatus={onTileStatus} isOnline={isOnline} />
         <PoiMarkerLayer
           pois={pois}
           category={category}
@@ -70,6 +92,24 @@ export default function MapShell({
         {route && <RouteLine coords={route.coords} mode={route.mode} />}
         {children}
       </MapContainer>
+
+      {/*
+        The basemap refusing to load and the device being offline look
+        identical from here: a grey grid. This says which one it is, because
+        the offline case is expected and the refused case means the shared
+        public tile server has throttled the campus -- see docs/TILES.md.
+      */}
+      {tileProblem && (
+        <p
+          className={`map-tile-notice map-tile-notice--${tileProblem.kind}`}
+          role="status"
+        >
+          {tileProblem.message}
+          {tileProblem.kind === 'blocked' && tileHost(TILE_URL) && (
+            <> Source: {tileHost(TILE_URL)}.</>
+          )}
+        </p>
+      )}
     </div>
   );
 }
