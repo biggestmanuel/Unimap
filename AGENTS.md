@@ -163,6 +163,19 @@ introduced a real credential.** Rotate first, confirm the old value is dead with
 Once the project is deployed and has even one user: keep all work on branches
 and never test on main.
 
+## Automation
+
+**Automate everything that can be automated:** tests, lint, builds, audits,
+scans, migration checks, and repeated manual steps — run them and report the
+results. `npm run check`, `npm run check:live`, `npm run audit:history`, the
+test suites, and the build all exist for exactly this reason; use them and
+report what passed and what failed.
+
+**Never automate irreversible or outward-facing actions without my confirmation:**
+merging, deploying, deleting data, force-pushing, spending money, sending
+messages. Those require explicit approval before they run. If an action touches
+production or could lose data, stop and ask.
+
 ## Public routes are public by design
 
 Routes that are intentionally public (no accounts by design) must be documented
