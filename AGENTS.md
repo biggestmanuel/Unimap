@@ -125,10 +125,9 @@ safe.
 - Merged traces become `footpath`, never `corridor`, and endpoints are snapped
   within 25 m. The middle of the walk is never moved.
 
-## Commit and push after every change
+## Git workflow
 
-**Never end a turn with a file change uncommitted. Push every commit.**
-
+**Never commit or push directly to `main`. `main` receives merges only.**
 Work here has been lost before: a session ended with a working tree full of
 uncommitted work, and an evening of verified fixes that existed on one machine
 only. The cost is not the time to redo them — it is that nobody can afterwards
@@ -136,23 +135,39 @@ tell which of them were ever tested.
 
 What that means in practice:
 
+- **Branch from an up-to-date `main`:** `git switch -c <short-descriptive-name>`
 - **Commit as soon as a change is coherent and its checks pass.** Not after every
   line edited — a commit per edit produces a history nobody can read and makes
   `git bisect` worthless — but never leave a finished thing sitting uncommitted
   while you go and do something else.
-- **Push every commit.** There is no other branch to fall back on, so an unpushed
-  commit is a commit that exists on exactly one machine.
-- **Before finishing a turn**, both of these must be empty:
-  `git status --short` and `git log origin/main..HEAD`.
+- **Push every commit to its branch:** `git push -u origin <branch>`. An
+  unpushed commit is a commit that exists on exactly one machine.
+- **One change, one commit, pushed, then move on.** Do not batch unrelated work.
+  Two unrelated fixes means two commits. Refactoring beside a bug fix is a
+  separate commit.
+- **Merging:** when the branch is ready, say so — with reasoning, CI status, and
+  a summary of the diff. Open the PR and wait. Merge only after you explicitly
+  confirm. Before asking, confirm CI is green and the diff matches your report.
+- **Reverting is a commit.** History is append-only. If a pushed commit was
+  wrong, add a commit that undoes it and say in the message what was wrong.
 
-If something will not survive to the next turn, commit it anyway and say in the
-message that it is work in progress. A labelled WIP commit beats lost work, and
-`git commit --amend` tidies it up later.
+If something will not survive to the next turn, commit it anyway as a labelled
+WIP commit and say so. A WIP commit beats lost work, and `git commit --amend`
+tidies it up later.
 
 The one exception, and it is not a small one: **never commit a file change that
 introduced a real credential.** Rotate first, confirm the old value is dead with
 `npm run audit:history`, then commit. A pushed secret is not a mistake you can
 `git rm` your way out of.
+
+Once the project is deployed and has even one user: keep all work on branches
+and never test on main.
+
+## Public routes are public by design
+
+Routes that are intentionally public (no accounts by design) must be documented
+as such in the README, and protected with rate limits, input limits, and spending
+caps instead of auth. Never add auth to a public route without asking first.
 
 ## Before committing
 
