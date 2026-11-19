@@ -130,6 +130,11 @@
   border-color: var(--warn);
 }
 
+/* Sits below any saved-data notice, so the two never cover each other. */
+.notice--hint {
+  top: calc(64px + env(safe-area-inset-top, 0px));
+}
+
 /* ── Route panel ─────────────────────────────────────────────────────── */
 .route-panel {
   position: absolute;

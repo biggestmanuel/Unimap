@@ -154,9 +154,14 @@ export default function App() {
       )}
 
       {geo.status === 'idle' && status === 'ready' && (
-        <button type="button" className="fab" onClick={geo.start}>
-          Use my location
-        </button>
+        <>
+          <p className="notice notice--hint" role="status">
+            Allow location to get directions from where you are.
+          </p>
+          <button type="button" className="fab" onClick={geo.start}>
+            Use my location
+          </button>
+        </>
       )}
 
       <RoutePanel

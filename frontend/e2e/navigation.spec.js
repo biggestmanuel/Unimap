@@ -116,6 +116,8 @@ test.describe('navigation', () => {
   test('offers to locate before any fix arrives', async ({ page }) => {
     await setup(page);
     await expect(page.getByRole('button', { name: /use my location/i })).toBeVisible();
+    // The student should know why the browser is about to ask for location.
+    await expect(page.getByText(/allow location to get directions/i)).toBeVisible();
   });
 
   test('requests a route once a position and a selection exist', async ({ page }) => {
