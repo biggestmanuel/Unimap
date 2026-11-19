@@ -2,6 +2,19 @@ import React from 'react';
 import { formatDistance, formatDuration } from '../hooks/useRouting.js';
 
 /**
+ * Fetch and HTTP errors reach this component as raw text ("Failed to fetch",
+ * "HTTP 503"). A student cannot act on that. Map the network-shaped failures
+ * to a message that says what to do, and leave everything else generic.
+ */
+function friendlyRouteError(error) {
+  const text = String(error ?? '').toLowerCase();
+  if (/fetch|network|timeout|\b5\d\d\b/.test(text)) {
+    return 'Could not reach the campus routing service. Check your connection and try again.';
+  }
+  return 'Could not work out a route. Please try again.';
+}
+
+/**
  * Turn-by-turn route summary.
  *
  * Shown as a bottom sheet so it never covers the map the user is following.
@@ -31,10 +44,17 @@ export default function RoutePanel({
   if (status === 'error' && !result) {
     return (
       <section className="route-panel route-panel--error" role="alert">
-        <p className="route-panel__status">{error ?? 'Could not work out a route.'}</p>
-        {onDismiss && (
-          <button type="button" className="btn btn--ghost" onClick={onDismiss}>Close</button>
-        )}
+        <p className="route-panel__status">{friendlyRouteError(error)}</p>
+        <div className="route-panel__actions">
+          {onReroute && (
+            <button type="button" className="btn btn--primary" onClick={onReroute}>
+              Try again
+            </button>
+          )}
+          {onDismiss && (
+            <button type="button" className="btn btn--ghost" onClick={onDismiss}>Close</button>
+          )}
+        </div>
       </section>
     );
   }

@@ -17,7 +17,7 @@ import { useStoragePressure } from './hooks/useStoragePressure.js';
 import { CAMPUS_CENTER, CAMPUS_NAME } from './lib/categories.js';
 
 export default function App() {
-  const { pois, status, error, fromCache, reload } = usePois();
+  const { pois, status, fromCache, reload } = usePois();
   const search = useSearch(pois);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [mapReady, setMapReady] = useState(false);
@@ -199,7 +199,7 @@ export default function App() {
       {status === 'error' && (
         <div className="error-card" role="alert">
           <h2>Couldn’t load campus data</h2>
-          <p>{error}</p>
+          <p>Check your connection and try again. If it keeps failing, the campus service may be down.</p>
           <button type="button" onClick={reload}>Try again</button>
         </div>
       )}

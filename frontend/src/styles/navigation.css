@@ -191,6 +191,13 @@
   color: var(--muted);
 }
 
+.route-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .route-panel__notice {
   margin: 8px 0;
   padding: 9px 12px;
