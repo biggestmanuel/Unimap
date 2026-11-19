@@ -16,6 +16,7 @@ export default function RoutePanel({
   destinationName,
   onDismiss,
   onReroute,
+  originApproximate = false,
 }) {
   if (status === 'idle' && !result) return null;
 
@@ -61,6 +62,14 @@ export default function RoutePanel({
           </button>
         )}
       </header>
+
+      {/* With no GPS fix the request starts at the campus centre. Hiding that
+          makes the route look like it begins at the student's feet. */}
+      {originApproximate && (
+        <p className="route-panel__notice route-panel__notice--info" role="status">
+          Starting from the campus centre. Use my location for directions from here.
+        </p>
+      )}
 
       {fallback && (
         <p className="route-panel__notice route-panel__notice--warn">

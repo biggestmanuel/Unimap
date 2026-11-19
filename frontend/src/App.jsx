@@ -165,6 +165,7 @@ export default function App() {
         error={routing.error}
         arrival={arrival}
         destinationName={routing.result?.to?.name}
+        originApproximate={!geo.position}
         onDismiss={() => {
           routing.clear();
           arrival.reset();

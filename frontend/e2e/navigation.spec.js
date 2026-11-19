@@ -295,6 +295,9 @@ test.describe('navigation', () => {
 
     const panel = page.locator('.route-panel');
     await expect(panel).toBeVisible();
+    // The student must be told the route starts at the campus centre, not at
+    // their feet -- there was no GPS fix to route from.
+    await expect(page.getByText(/starting from the campus centre/i)).toBeVisible();
     // No off-campus notice should be shown when there is no fix at all.
     await expect(page.getByText(/you are off campus/i)).toHaveCount(0);
   });
