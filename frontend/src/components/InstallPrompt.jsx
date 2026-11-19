@@ -54,9 +54,6 @@ export default function InstallPrompt() {
     <div className="install-prompt" role="dialog" aria-label="Install UniMap">
       <div className="install-prompt__body">
         <p className="install-prompt__title">Install UniMap</p>
-        <p className="install-prompt__text">
-          Works offline on Glo data, and opens full screen.
-        </p>
       </div>
       <div className="install-prompt__actions">
         <button type="button" className="btn btn--ghost" onClick={dismiss}>Not now</button>
