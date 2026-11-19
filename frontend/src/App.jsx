@@ -179,6 +179,7 @@ export default function App() {
           const selected = pois.find((p) => p.id === search.selectedId);
           if (selected) goToPoi(selected);
         }}
+        onRetry={routing.retry}
       />
 
       <InstallPrompt />

@@ -34,6 +34,9 @@ export function useRouting() {
   const controller = useRef(null);
   // Guards against an earlier, slower request overwriting a later one.
   const requestId = useRef(0);
+  // Kept so "Try again" can resend the exact request that failed, even when
+  // it came from a map tap rather than a selected POI.
+  const lastRequest = useRef(null);
 
   const cancel = useCallback(() => {
     controller.current?.abort();
@@ -52,6 +55,7 @@ export function useRouting() {
     controller.current?.abort();
     const ac = new AbortController();
     controller.current = ac;
+    lastRequest.current = { from, to, options };
     const id = requestId.current + 1;
     requestId.current = id;
 
@@ -88,9 +92,15 @@ export function useRouting() {
     }
   }, []);
 
+  const retry = useCallback(() => {
+    const last = lastRequest.current;
+    return last ? route(last.from, last.to, last.options) : null;
+  }, [route]);
+
   const clear = useCallback(() => {
     controller.current?.abort();
     controller.current = null;
+    lastRequest.current = null;
     setResult(null);
     setError(null);
     setStatus('idle');
@@ -98,5 +108,5 @@ export function useRouting() {
 
   useEffect(() => () => controller.current?.abort(), []);
 
-  return { result, status, error, route, clear, cancel };
+  return { result, status, error, route, retry, clear, cancel };
 }

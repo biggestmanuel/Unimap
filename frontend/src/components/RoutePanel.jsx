@@ -29,6 +29,7 @@ export default function RoutePanel({
   destinationName,
   onDismiss,
   onReroute,
+  onRetry,
   originApproximate = false,
 }) {
   if (status === 'idle' && !result) return null;
@@ -46,8 +47,8 @@ export default function RoutePanel({
       <section className="route-panel route-panel--error" role="alert">
         <p className="route-panel__status">{friendlyRouteError(error)}</p>
         <div className="route-panel__actions">
-          {onReroute && (
-            <button type="button" className="btn btn--primary" onClick={onReroute}>
+          {onRetry && (
+            <button type="button" className="btn btn--primary" onClick={onRetry}>
               Try again
             </button>
           )}

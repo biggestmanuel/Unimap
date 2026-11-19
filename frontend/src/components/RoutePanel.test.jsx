@@ -40,12 +40,12 @@ describe('RoutePanel', () => {
   });
 
   it('turns a raw fetch failure into an actionable message with a retry', async () => {
-    const onReroute = vi.fn();
+    const onRetry = vi.fn();
     render(
       <RoutePanel
         status="error"
         error="Failed to fetch"
-        onReroute={onReroute}
+        onRetry={onRetry}
         onDismiss={vi.fn()}
       />,
     );
@@ -55,7 +55,7 @@ describe('RoutePanel', () => {
     expect(alert).not.toHaveTextContent(/failed to fetch/i);
 
     await userEvent.click(screen.getByRole('button', { name: /try again/i }));
-    expect(onReroute).toHaveBeenCalledOnce();
+    expect(onRetry).toHaveBeenCalledOnce();
   });
 
   it('keeps a generic message for errors that are not network failures', () => {
